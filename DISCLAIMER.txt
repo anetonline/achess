@@ -1,0 +1,9 @@
+NO LIABILITY DISCLAIMER
+
+This software, including but not limited to "Synchronet Chess" (achess.js, achess_ibbs.js, and related files), is provided "AS IS" and WITHOUT ANY WARRANTY of any kind, either express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement.
+
+In no event shall the authors, contributors, maintainers, or distributors of this software be held liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+
+Users and system operators install and operate this software at their own risk. It is the responsibility of the system operator to ensure that use of this software complies with all applicable laws and regulations.
+
+BY USING THIS SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE READ THIS DISCLAIMER AND AGREE TO ITS TERMS.
