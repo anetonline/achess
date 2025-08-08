@@ -1,6 +1,6 @@
-﻿A-NET SYNCHRONET CHESS - INSTALLATION & SETUP
+A-NET SYNCHRONET CHESS - INSTALLATION & SETUP
 
-Welcome to A-Net Chess!
+Welcome to A-Net Chess v.251!
 InterBBS-ready chess fun for Synchronet BBS Sysops and users.
 
 
@@ -109,6 +109,9 @@ c. Scheduling InterBBS Packet Exchange
 The InterBBS handler now runs as a standard Synchronet command, not with jsexec.
 
 Commands:
+- achess_ibbs.js validate # Check for issues 
+- achess_ibbs.js cleanup # Fix duplicates 
+- achess_ibbs.js distribute # (LC only) Send clean list
 - achess_ibbs outbound   (create/send packets to all nodes)
 - achess_ibbs inbound    (process incoming packets)
 - achess_ibbs all        (run both inbound and outbound processing)
@@ -300,4 +303,3 @@ Ansi Artwork By: Cozmo of Lunatics Unleashed BBS
 Telnet: lunaticsunleashed.ddns.net:2333
 
 The Lizard Master – Nite Eyes BBS -	bbs.lizardmaster.com
-
