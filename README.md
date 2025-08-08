@@ -1,4 +1,4 @@
-A-NET SYNCHRONET ANSI CHESS v.25
+A-NET SYNCHRONET ANSI CHESS v.251
 by StingRay @ A-Net Online BBS
 
 A full-featured ANSI Chess game for Synchronet BBS!
