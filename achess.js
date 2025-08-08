@@ -2333,9 +2333,11 @@ function readScores() {
     if (!f.open("r")) return [];
     var arr = JSON.parse(f.readAll().join(""));
     f.close();
+    if (!Array.isArray(arr)) return [];
     return arr;
 }
 function writeScores(scores) {
+    if (!Array.isArray(scores)) scores = [];
     var f = new File(SCORES_FILE);
     if (f.open("w+")) {
         f.write(JSON.stringify(scores, null, 2));
@@ -2344,11 +2346,12 @@ function writeScores(scores) {
 }
 function addScore(username, result, vs) {
     var scores = readScores();
+    if (!Array.isArray(scores)) scores = [];
     var now = strftime("%Y-%m-%d %H:%M", time());
     scores.push({
         user: username,
         result: result,
-        vs: vs,  // This will now include the difficulty level for computer opponents
+        vs: vs,
         date: now
     });
     while (scores.length > 30) scores.shift();
