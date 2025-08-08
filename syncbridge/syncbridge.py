@@ -112,7 +112,19 @@ class SyncBridge(object):
         if self.debug:
             print("Mock require: {} (class: {})".format(module_path, class_name))
         
-        # For now, return a mock object
+        # Return mock objects for known Synchronet modules
+        if "dd_lightbar_menu" in module_path:
+            # Mock DDLightbarMenu class
+            class MockDDLightbarMenu:
+                def __init__(self, *args, **kwargs):
+                    pass
+                def add(self, *args):
+                    pass
+                def show(self):
+                    return 0
+            return MockDDLightbarMenu if class_name == "DDLightbarMenu" else MockDDLightbarMenu()
+        
+        # For other modules, return empty mock
         if class_name:
             return type(class_name, (), {})
         return {}
@@ -122,7 +134,15 @@ class SyncBridge(object):
         if self.debug:
             print("Mock load: {}".format(module_path))
         
-        # For now, just log the load attempt
+        # For frame.js, scrollbar.js, etc., just return True
+        # These would normally add functions to global scope
+        if "frame.js" in module_path:
+            # Mock Frame constructor
+            self.global_scope['Frame'] = type('Frame', (), {'new': lambda *args: None})
+        elif "scrollbar.js" in module_path:
+            # Mock Scrollbar constructor  
+            self.global_scope['Scrollbar'] = type('Scrollbar', (), {'new': lambda *args: None})
+        
         return True
     
     def load_js_file(self, js_file_path):

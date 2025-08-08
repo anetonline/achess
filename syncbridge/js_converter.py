@@ -85,10 +85,62 @@ class JSConverter(object):
     
     def _convert_variables(self, code):
         """Convert var/let/const declarations to Python assignments"""
-        # Convert var, let, const declarations
-        code = re.sub(r'\b(?:var|let|const)\s+(\w+)\s*=', r'\1 =', code)
-        code = re.sub(r'\b(?:var|let|const)\s+(\w+)(?:\s*;|\s*$)', r'\1 = None', code, flags=re.MULTILINE)
-        return code
+        lines = code.split('\n')
+        processed_lines = []
+        
+        for line in lines:
+            # Handle multiple variable declarations in one line
+            if re.match(r'\s*(?:var|let|const)\s+\w+\s*=', line):
+                # Check for multiple declarations separated by commas
+                if ',' in line and '=' in line:
+                    # Split on commas but be careful about commas inside strings/function calls
+                    # This is a simplified approach
+                    var_match = re.match(r'\s*(?:var|let|const)\s+(.*)', line)
+                    if var_match:
+                        declarations = var_match.group(1)
+                        # Simple split on comma (doesn't handle complex cases)
+                        parts = []
+                        current_part = ""
+                        paren_count = 0
+                        in_string = False
+                        quote_char = None
+                        
+                        for char in declarations:
+                            if char in ['"', "'"] and not in_string:
+                                in_string = True
+                                quote_char = char
+                            elif char == quote_char and in_string:
+                                in_string = False
+                                quote_char = None
+                            elif char == '(' and not in_string:
+                                paren_count += 1
+                            elif char == ')' and not in_string:
+                                paren_count -= 1
+                            elif char == ',' and not in_string and paren_count == 0:
+                                parts.append(current_part.strip())
+                                current_part = ""
+                                continue
+                            
+                            current_part += char
+                        
+                        if current_part.strip():
+                            parts.append(current_part.strip())
+                        
+                        # Convert each part to a separate Python assignment
+                        for part in parts:
+                            if '=' in part:
+                                processed_lines.append(part)
+                            else:
+                                processed_lines.append(part + ' = None')
+                        continue
+                else:
+                    # Single variable declaration
+                    line = re.sub(r'\b(?:var|let|const)\s+(\w+)\s*=', r'\1 =', line)
+                    line = re.sub(r'\b(?:var|let|const)\s+(\w+)(?:\s*$)', r'\1 = None', line)
+            
+            processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
     
     def _convert_functions(self, code):
         """Convert JavaScript function syntax to Python"""
@@ -135,54 +187,104 @@ class JSConverter(object):
     
     def _convert_control_structures(self, code):
         """Convert JavaScript control structures to Python"""
-        # Convert for loops
-        code = re.sub(r'for\s*\(\s*var\s+(\w+)\s*=\s*([^;]+);\s*([^;]+);\s*([^)]+)\)\s*{',
-                     r'for \1 in range(\2, \3):  # Original: \4', code)
-        
-        # Convert while loops
-        code = re.sub(r'while\s*\(([^)]+)\)\s*{', r'while \1:', code)
-        
-        # Convert if statements with opening brace
-        code = re.sub(r'if\s*\(([^)]+)\)\s*{', r'if \1:', code)
-        code = re.sub(r'}\s*else\s*if\s*\(([^)]+)\)\s*{', r'elif \1:', code)
-        code = re.sub(r'}\s*else\s*{', r'else:', code)
-        
-        # Handle parentheses in if statements without braces
-        code = re.sub(r'if\s*\(([^)]+)\)', r'if \1:', code)
-        
-        # Remove standalone closing braces and replace with pass if needed
         lines = code.split('\n')
         processed_lines = []
         indent_level = 0
         
         for line in lines:
+            original_line = line
             stripped = line.strip()
             
-            # Track indentation for control structures
-            if stripped.endswith(':'):
+            # Convert for loops with proper handling
+            for_match = re.match(r'(\s*)for\s*\(\s*var\s+(\w+)\s*=\s*([^;]+);\s*([^;]+);\s*([^)]+)\)\s*{?', stripped)
+            if for_match:
+                indent, var_name, start, condition, increment = for_match.groups()
+                
+                # Extract the limit from condition (simple case: var < limit)
+                condition_match = re.match(r'(\w+)\s*<\s*(.+)', condition.strip())
+                if condition_match:
+                    limit = condition_match.group(2)
+                    processed_lines.append('{}for {} in range({}, {}):'.format(indent, var_name, start, limit))
+                    indent_level += 4
+                    continue
+            
+            # Convert for loops without var declaration
+            for_match2 = re.match(r'(\s*)for\s*\(\s*(\w+)\s*=\s*([^;]+);\s*([^;]+);\s*([^)]+)\)\s*{?', stripped)
+            if for_match2:
+                indent, var_name, start, condition, increment = for_match2.groups()
+                
+                # Extract the limit from condition
+                condition_match = re.match(r'(\w+)\s*<\s*(.+)', condition.strip())
+                if condition_match:
+                    limit = condition_match.group(2)
+                    processed_lines.append('{}for {} in range({}, {}):'.format(indent, var_name, start, limit))
+                    indent_level += 4
+                    continue
+            
+            # Convert while loops
+            while_match = re.match(r'(\s*)while\s*\(([^)]+)\)\s*{?', stripped)
+            if while_match:
+                indent, condition = while_match.groups()
+                processed_lines.append('{}while {}:'.format(indent, condition))
                 indent_level += 4
-                processed_lines.append(line)
-            elif stripped == '}' or stripped == '':
-                # End of block - reduce indent and add pass if needed
+                continue
+            
+            # Convert if statements
+            if_match = re.match(r'(\s*)if\s*\(([^)]+)\)\s*{?', stripped)
+            if if_match:
+                indent, condition = if_match.groups()
+                processed_lines.append('{}if {}:'.format(indent, condition))
+                indent_level += 4
+                continue
+            
+            # Convert else if
+            elif_match = re.match(r'(\s*)}\s*else\s*if\s*\(([^)]+)\)\s*{?', stripped)
+            if elif_match:
+                indent, condition = elif_match.groups()
                 if indent_level > 0:
                     indent_level -= 4
-                # Skip empty braces
-                if stripped == '}':
-                    continue
-                processed_lines.append(line)
-            else:
-                # Regular line - add proper indentation if needed
+                processed_lines.append('{}elif {}:'.format(indent, condition))
+                indent_level += 4
+                continue
+            
+            # Convert else
+            else_match = re.match(r'(\s*)}\s*else\s*{?', stripped)
+            if else_match:
+                indent = else_match.group(1)
+                if indent_level > 0:
+                    indent_level -= 4
+                processed_lines.append('{}else:'.format(indent))
+                indent_level += 4
+                continue
+            
+            # Skip standalone closing braces
+            if stripped == '}':
+                if indent_level > 0:
+                    indent_level -= 4
+                continue
+            
+            # Handle regular lines with proper indentation
+            if stripped and not stripped.startswith('#'):
+                # If we're in an indented block and line doesn't start with whitespace
                 if indent_level > 0 and not line.startswith(' '):
-                    line = ' ' * indent_level + line
-                processed_lines.append(line)
+                    line = ' ' * indent_level + line.lstrip()
+            
+            processed_lines.append(line)
         
         return '\n'.join(processed_lines)
     
     def _convert_literals(self, code):
         """Convert JavaScript array/object literals to Python"""
-        # Note: This is a simplified conversion
-        # Arrays [...] can stay mostly the same
-        # Objects {...} need more complex conversion to dictionaries
+        # Convert object literals {} to dictionaries
+        # This is a simplified conversion for basic cases
+        
+        # Convert simple object literals like { key: value, key2: value2 }
+        # This regex handles simple cases only
+        code = re.sub(r'\{\s*(\w+):\s*([^,}]+)\s*\}', r'{\1: \2}', code)
+        
+        # Fix object property access
+        code = re.sub(r'Object\.keys\(([^)]+)\)', r'list(\1.keys())', code)
+        
         return code
     
     def _convert_typeof(self, code):
