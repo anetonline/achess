@@ -2240,7 +2240,7 @@ function sendInterBBSMove(gameId, move, fen, moveHistory, gameStatus) {
     }
 }
 
-// Send outbound message
+// Send outbound message - UPDATED to match expected format
 function sendInterBBSMessage(targetBBS, targetUser, subject, body) {
     var nodes = loadInterBBSNodes();
     var targetNode = null;
@@ -2258,29 +2258,26 @@ function sendInterBBSMessage(targetBBS, targetUser, subject, body) {
         return false;
     }
     
+    // UPDATED: Create packet in root-level format that matches inbound expectations
     var packet = {
         type: "message",
-        from: {
-            user: user.alias || user.name || "LocalUser",
-            bbs: getLocalBBS("name"),
-            address: getLocalBBS("address")
-        },
-        to: {
-            user: targetUser,
-            bbs: targetNode.name,
-            address: targetNode.address
-        },
+        bbs: getLocalBBS("name"),                    // Root level
+        address: getLocalBBS("address"),             // Root level  
+        to_bbs: targetNode.name,
+        to_addr: targetNode.address,
+        to_user: targetUser || "",
+        from_user: user.alias || user.name || "LocalUser",
         subject: subject || "InterBBS Message",
         body: body || "",
-        created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+        created: strftime("%Y-%m-%d %H:%M:%S", time())  // Match X-Bit format
     };
     
     var filename = "achess_message_" + targetNode.address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
     var filepath = INTERBBS_OUT_DIR + filename;
     
     if (saveJSONFile(filepath, packet)) {
-        print("Message sent to " + targetUser + " @ " + targetBBS + "\r\n");
-        logEvent("Sent message to " + targetUser + " @ " + targetBBS);
+        print("Message sent to " + (targetUser || "ALL") + " @ " + targetBBS + "\r\n");
+        logEvent("Sent message to " + (targetUser || "ALL") + " @ " + targetBBS);
         return true;
     } else {
         print("ERROR: Could not send message\r\n");
