@@ -298,18 +298,18 @@ function markMyAchessNotificationsRead() {
 function showAchessNotifications() {
     var notes = getMyUnreadAchessNotifications();
     if (!notes.length) {
-        console.print_text("\r\nNo new Achess notifications.\r\n");
+        console.print("\r\nNo new Achess notifications.\r\n");
         return;
     }
-    console.print_text("\r\n\x01c\x01h*** You have " + notes.length + " new Achess notification" + (notes.length>1?"s":"") + "! ***\x01n\r\n");
+    console.print("\r\n\x01c\x01h*** You have " + notes.length + " new Achess notification" + (notes.length>1?"s":"") + "! ***\x01n\r\n");
     for (var i=0; i<notes.length; i++) {
         var n = notes[i];
-        console.print_text("\x01g["+(i+1)+"]\x01n \x01h"+(n.subject||"No subject")+"\x01n   "+(n.time||"")+"\r\n");
-        console.print_text((n.body||"") + "\r\n");
-        console.print_text("\x01b---------------------------------------------\x01n\r\n");
+        console.print("\x01g["+(i+1)+"]\x01n \x01h"+(n.subject||"No subject")+"\x01n   "+(n.time||"")+"\r\n");
+        console.print((n.body||"") + "\r\n");
+        console.print("\x01b---------------------------------------------\x01n\r\n");
     }
     markMyAchessNotificationsRead();
-    console.print_text("\r\n\x01cPress any key to continue...\x01n\r\n");
+    console.print("\r\n\x01cPress any key to continue...\x01n\r\n");
     console.getkey();
 }
 
@@ -665,20 +665,20 @@ function promptMove(chess, playerColor, playerNames, savedMoves) {
 
         if (chess.in_checkmate()) {
             console.gotoxy(1, promptY);
-            console.print_text("Checkmate! " + (chess.turn() === "w" ? "Black" : "White") + " wins! [Press any key]");
+            console.print("Checkmate! " + (chess.turn() === "w" ? "Black" : "White") + " wins! [Press any key]");
             console.getkey();
             return false;
         }
         if (chess.in_stalemate() || chess.in_draw()) {
             console.gotoxy(1, promptY);
-            console.print_text("Draw! [Press any key]");
+            console.print("Draw! [Press any key]");
             console.getkey();
             return false;
         }
 
         console.gotoxy(1, promptY);
         console.cleartoeol();
-        console.print_text("\x01w\x01h" + promptText + "\x01n");
+        console.print("\x01w\x01h" + promptText + "\x01n");
         var moveInput = console.getstr(10);
 
         if (!moveInput) continue;
@@ -708,7 +708,7 @@ function promptMove(chess, playerColor, playerNames, savedMoves) {
         } else {
             console.gotoxy(1, promptY + 1);
             console.cleartoeol();
-            console.print_text("Illegal move. Try again. [Press any key]");
+            console.print("Illegal move. Try again. [Press any key]");
             console.getkey();
         }
     }
@@ -857,12 +857,12 @@ function playVsComputer(loadFromSave, saveObj) {
         chess = new Chess();
         
         // Color selection
-        console.print_text("\r\nPlay as (W)hite or (B)lack? [W]: ");
+        console.print("\r\nPlay as (W)hite or (B)lack? [W]: ");
         var c = console.getkey().toUpperCase();
         if (c === "B") playerColor = "b";
         
         // Difficulty selection
-        console.print_text("\r\nSelect difficulty: (E)asy, (M)edium, or (H)ard? [E]: ");
+        console.print("\r\nSelect difficulty: (E)asy, (M)edium, or (H)ard? [E]: ");
         c = console.getkey().toUpperCase();
         if (c === "M") difficulty = "medium";
         else if (c === "H") difficulty = "hard";
@@ -891,7 +891,7 @@ function playVsComputer(loadFromSave, saveObj) {
                 };
                 saveComputerGame(gameData);
                 console.gotoxy(11, 22);
-                console.print_text("Game saved. [Press any key]");
+                console.print("Game saved. [Press any key]");
                 console.getkey();
                 break;
             }
@@ -911,7 +911,7 @@ function playVsComputer(loadFromSave, saveObj) {
                 };
                 saveComputerGame(gameData);
                 console.gotoxy(11, 22);
-                console.print_text("Game saved. [Press any key]");
+                console.print("Game saved. [Press any key]");
                 console.getkey();
                 return;
             }
@@ -944,7 +944,7 @@ function playVsComputer(loadFromSave, saveObj) {
             
             // Create a more prominent game-over message
             console.gotoxy(11, 20);
-            console.print_text("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
+            console.print("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
             console.gotoxy(11, 21);
             
             var gameResult = "";
@@ -978,13 +978,13 @@ function playVsComputer(loadFromSave, saveObj) {
             
             // Center the game result message
             var padLen = Math.floor((40 - gameResult.replace(/\x01./g, "").length) / 2);
-            console.print_text(repeatChar(" ", padLen) + gameResult);
+            console.print(repeatChar(" ", padLen) + gameResult);
             
             console.gotoxy(11, 22);
-            console.print_text(victoryMessage);
+            console.print(victoryMessage);
             
             console.gotoxy(11, 23);
-            console.print_text("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
+            console.print("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
             
             // Delete game from saved games if it exists
             if (gameId) {
@@ -992,7 +992,7 @@ function playVsComputer(loadFromSave, saveObj) {
             }
             
             console.gotoxy(11, 25);
-            console.print_text("\x01h\x01cPress any key to return to the menu...\x01n");
+            console.print("\x01h\x01cPress any key to return to the menu...\x01n");
             console.getkey();
             break;
         }
@@ -1133,7 +1133,7 @@ function selectLocalOpponent(players) {
 
     console.clear();
     console.gotoxy(menu_x, menu_y - 2);
-    console.print_text("\x01w\x01hSelect a local player to play as Black:\x01n");
+    console.print("\x01w\x01hSelect a local player to play as Black:\x01n");
 
     var selected = menu.GetVal();
     if (typeof selected !== "string") return null;
@@ -1173,22 +1173,22 @@ function getPendingChallenges() {
 function interbbsChallenge() {
     var nodes = readNodes();
     if (!nodes.length) {
-        console.print_text("\r\nNo InterBBS node file found or no nodes listed.\r\n");
-        console.print_text("[Press any key]");
+        console.print("\r\nNo InterBBS node file found or no nodes listed.\r\n");
+        console.print("[Press any key]");
         console.getkey();
         return;
     }
     
-    console.print_text("\r\nAvailable BBSes:\r\n");
+    console.print("\r\nAvailable BBSes:\r\n");
     for (var i=0; i<nodes.length; i++) {
-        console.print_text(format("%2d. %-25s Address: %-15s\r\n", i+1, nodes[i].name||"", nodes[i].address||""));
+        console.print(format("%2d. %-25s Address: %-15s\r\n", i+1, nodes[i].name||"", nodes[i].address||""));
     }
     
-    console.print_text("Enter destination BBS number: ");
+    console.print("Enter destination BBS number: ");
     var idx = parseInt(console.getstr(2));
     if (isNaN(idx) || idx < 1 || idx > nodes.length) {
-        console.print_text("Invalid choice.\r\n");
-        console.print_text("[Press any key]");
+        console.print("Invalid choice.\r\n");
+        console.print("[Press any key]");
         console.getkey();
         return;
     }
@@ -1199,61 +1199,61 @@ function interbbsChallenge() {
     // Show available players on that BBS (if we have them)
     var players = getPlayersForNode(node.address);
     if (players.length > 0) {
-        console.print_text("\r\nKnown players on " + node.name + ":\r\n");
+        console.print("\r\nKnown players on " + node.name + ":\r\n");
         for (var i=0; i<players.length; i++) {
-            console.print_text(format("%2d. %s (Last seen: %s)\r\n", i+1, players[i].username, players[i].lastSeen || "Unknown"));
+            console.print(format("%2d. %s (Last seen: %s)\r\n", i+1, players[i].username, players[i].lastSeen || "Unknown"));
         }
-        console.print_text(format("%2d. Request updated player list\r\n", players.length+1));
-        console.print_text(format("%2d. Enter custom username\r\n", players.length+2));
-        console.print_text("Select option: ");
+        console.print(format("%2d. Request updated player list\r\n", players.length+1));
+        console.print(format("%2d. Enter custom username\r\n", players.length+2));
+        console.print("Select option: ");
         var pidx = parseInt(console.getstr(2));
         
         if (!isNaN(pidx) && pidx >= 1 && pidx <= players.length) {
             oppUser = players[pidx-1].username;
         } else if (pidx === players.length + 1) {
             // Request player list
-            console.print_text("\r\nRequesting updated player list from " + node.name + "...\r\n");
+            console.print("\r\nRequesting updated player list from " + node.name + "...\r\n");
             if (requestPlayerList(node.address)) {
-                console.print_text("Request sent! Check back later for updated player list.\r\n");
+                console.print("Request sent! Check back later for updated player list.\r\n");
             } else {
-                console.print_text("Error sending request.\r\n");
+                console.print("Error sending request.\r\n");
             }
-            console.print_text("[Press any key]");
+            console.print("[Press any key]");
             console.getkey();
             return;
         } else if (pidx === players.length + 2) {
-            console.print_text("Enter opponent's username: ");
+            console.print("Enter opponent's username: ");
             oppUser = console.getstr(30);
         } else {
-            console.print_text("Invalid choice.\r\n");
-            console.print_text("[Press any key]");
+            console.print("Invalid choice.\r\n");
+            console.print("[Press any key]");
             console.getkey();
             return;
         }
     } else {
-        console.print_text("\r\nNo known players on " + node.name + ".\r\n");
-        console.print_text("Options:\r\n");
-        console.print_text("1. Request player list from " + node.name + "\r\n");
-        console.print_text("2. Enter username manually\r\n");
-        console.print_text("Choice: ");
+        console.print("\r\nNo known players on " + node.name + ".\r\n");
+        console.print("Options:\r\n");
+        console.print("1. Request player list from " + node.name + "\r\n");
+        console.print("2. Enter username manually\r\n");
+        console.print("Choice: ");
         var choice = console.getkey();
         
         if (choice === "1") {
-            console.print_text("\r\nRequesting player list from " + node.name + "...\r\n");
+            console.print("\r\nRequesting player list from " + node.name + "...\r\n");
             if (requestPlayerList(node.address)) {
-                console.print_text("Request sent! Check back later for updated player list.\r\n");
+                console.print("Request sent! Check back later for updated player list.\r\n");
             } else {
-                console.print_text("Error sending request.\r\n");
+                console.print("Error sending request.\r\n");
             }
-            console.print_text("[Press any key]");
+            console.print("[Press any key]");
             console.getkey();
             return;
         } else if (choice === "2") {
-            console.print_text("\r\nEnter opponent's username: ");
+            console.print("\r\nEnter opponent's username: ");
             oppUser = console.getstr(30);
         } else {
-            console.print_text("\r\nInvalid choice.\r\n");
-            console.print_text("[Press any key]");
+            console.print("\r\nInvalid choice.\r\n");
+            console.print("[Press any key]");
             console.getkey();
             return;
         }
@@ -1261,13 +1261,13 @@ function interbbsChallenge() {
     
     // Rest of the function remains the same...
     if (!oppUser) {
-        console.print_text("No username entered.\r\n");
-        console.print_text("[Press any key]");
+        console.print("No username entered.\r\n");
+        console.print("[Press any key]");
         console.getkey();
         return;
     }
     
-    console.print_text("Play as (W)hite, (B)lack, or (R)andom? [W]: ");
+    console.print("Play as (W)hite, (B)lack, or (R)andom? [W]: ");
     var color = "white";
     var c = console.getkey().toUpperCase();
     if (c === "B") color = "black";
@@ -1326,53 +1326,53 @@ function interbbsChallenge() {
     if (f.open("w+")) {
         f.write(JSON.stringify(challengePacket, null, 2));
         f.close();
-        console.print_text("\r\nChallenge sent to " + oppUser + " at " + node.name + "\r\n");
-        console.print_text("Game ID: " + game_id + "\r\n");
-        console.print_text("You will play as: " + color + "\r\n");
-        console.print_text("Packet saved to: " + path + "\r\n");
+        console.print("\r\nChallenge sent to " + oppUser + " at " + node.name + "\r\n");
+        console.print("Game ID: " + game_id + "\r\n");
+        console.print("You will play as: " + color + "\r\n");
+        console.print("Packet saved to: " + path + "\r\n");
     } else {
-        console.print_text("\r\nError: Could not create challenge packet.\r\n");
+        console.print("\r\nError: Could not create challenge packet.\r\n");
     }
-    console.print_text("[Press any key]");
+    console.print("[Press any key]");
     console.getkey();
 }
 
 function interbbsListChallenges() {
     var challenges = getPendingChallenges();
     if (!challenges || challenges.length === 0) {
-        console.print_text("\x01r\x01hNo pending InterBBS challenges.\x01n\r\n");
-        console.print_text("Press any key to return to the menu...\r\n");
+        console.print("\x01r\x01hNo pending InterBBS challenges.\x01n\r\n");
+        console.print("Press any key to return to the menu...\r\n");
         console.getkey();
         return;
     }
     
-    console.print_text("\r\n\x01h\x01cPending InterBBS Challenges:\x01n\r\n");
-    console.print_text("\x01b" + "=".repeat(50) + "\x01n\r\n");
+    console.print("\r\n\x01h\x01cPending InterBBS Challenges:\x01n\r\n");
+    console.print("\x01b" + "=".repeat(50) + "\x01n\r\n");
     
     for (var i = 0; i < challenges.length; i++) {
         var c = challenges[i];
         var challenger = c.players.white.user;
         var challengerBBS = c.players.white.bbs;
-        console.print_text(format("\x01g[%d]\x01n From: \x01h%s\x01n @ \x01c%s\x01n\r\n", i + 1, challenger, challengerBBS));
-        console.print_text(format("     Game ID: %s\r\n", c.game_id));
-        console.print_text(format("     You would play as: \x01h%s\x01n\r\n", (c.players.black.user === user.alias) ? "Black" : "White"));
-        console.print_text("\r\n");
+        console.print(format("\x01g[%d]\x01n From: \x01h%s\x01n @ \x01c%s\x01n\r\n", i + 1, challenger, challengerBBS));
+        console.print(format("     Game ID: %s\r\n", c.game_id));
+        console.print(format("     You would play as: \x01h%s\x01n\r\n", (c.players.black.user === user.alias) ? "Black" : "White"));
+        console.print("\r\n");
     }
     
-    console.print_text("Select challenge number to accept/decline (or Q to quit): ");
+    console.print("Select challenge number to accept/decline (or Q to quit): ");
     var sel = console.getstr(2);
     if (!sel || sel.toUpperCase() === "Q") return;
     
     var idx = parseInt(sel);
     if (isNaN(idx) || idx < 1 || idx > challenges.length) {
-        console.print_text("Invalid selection.\r\n");
-        console.print_text("[Press any key]");
+        console.print("Invalid selection.\r\n");
+        console.print("[Press any key]");
         console.getkey();
         return;
     }
     
     var challenge = challenges[idx - 1];
-    console.print_text("\r\n\x01h\x01gAccept (A) or Decline (D) this challenge?\x01n ");
+    console.print("\r\n\x01h\x01gAccept (A) or Decline (D) this challenge?\x01n ");
     var resp = console.getkey().toUpperCase();
     
     var games = loadInterBBSGames();
@@ -1396,7 +1396,7 @@ function interbbsListChallenges() {
         if (f.open("w+")) {
             f.write(JSON.stringify(acceptPacket, null, 2));
             f.close();
-            console.print_text("\r\n\x01h\x01gChallenge accepted!\x01n\r\n");
+            console.print("\r\n\x01h\x01gChallenge accepted!\x01n\r\n");
         }
         
         // Update game status
@@ -1431,17 +1431,17 @@ function interbbsListChallenges() {
         if (f.open("w+")) {
             f.write(JSON.stringify(declinePacket, null, 2));
             f.close();
-            console.print_text("\r\n\x01h\x01rChallenge declined.\x01n\r\n");
+            console.print("\r\n\x01h\x01rChallenge declined.\x01n\r\n");
         }
         
         // Remove game from list
         games = games.filter(function (g) { return g.game_id !== challenge.game_id; });
         saveInterBBSGames(games);
     } else {
-        console.print_text("\r\nInvalid choice.\r\n");
+        console.print("\r\nInvalid choice.\r\n");
     }
 
-    console.print_text("[Press any key]");
+    console.print("[Press any key]");
     console.getkey();
 }
 
@@ -1452,8 +1452,8 @@ function showAchessNotificationsInteractive() {
     });
     
     if (!myNotes.length) {
-        console.print_text("\r\nNo Achess notifications found.\r\n");
-        console.print_text("Press any key to continue...\r\n");
+        console.print("\r\nNo Achess notifications found.\r\n");
+        console.print("Press any key to continue...\r\n");
         console.getkey();
         return;
     }
@@ -1464,7 +1464,7 @@ function showAchessNotificationsInteractive() {
     
     while (bbs.online && !js.terminated) {
         console.clear();
-        console.print_text("\r\n\x01h\x01c--- Achess Notifications ---\x01n\r\n");
+        console.print("\r\n\x01h\x01c--- Achess Notifications ---\x01n\r\n");
         
         // Display notifications for current page
         var startIdx = currentPage * notesPerPage;
@@ -1473,16 +1473,16 @@ function showAchessNotificationsInteractive() {
         for (var i = startIdx; i < endIdx; i++) {
             var n = myNotes[i];
             var unread = n.read ? "" : " \x01h\x01r(UNREAD)\x01n";
-            console.print_text(format("\x01h\x01g[%d]%s \x01w\x01hSubject: \x01n%s  Date: %s\r\n", 
+            console.print(format("\x01h\x01g[%d]%s \x01w\x01hSubject: \x01n%s  Date: %s\r\n", 
                 i+1, unread, n.subject || "No subject", n.time || ""));
-            console.print_text((n.body || "") + "\r\n");
-            console.print_text("\x01b--------------------------------------------------\x01n\r\n");
+            console.print((n.body || "") + "\r\n");
+            console.print("\x01b--------------------------------------------------\x01n\r\n");
         }
         
         // Show navigation instructions
-        console.print_text("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + "\x01n\r\n");
-        console.print_text("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  \x01h\x01c[#]\x01n Select notification  \x01h\x01c[Q]\x01n Quit\r\n");
-        console.print_text("Enter your choice: ");
+        console.print("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + "\x01n\r\n");
+        console.print("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  \x01h\x01c[#]\x01n Select notification  \x01h\x01c[Q]\x01n Quit\r\n");
+        console.print("Enter your choice: ");
         
         var input = console.getstr(5).toUpperCase();
         if (input === "Q") {
@@ -1504,8 +1504,8 @@ function showAchessNotificationsInteractive() {
                     });
                     
                     if (myNotes.length === 0) {
-                        console.print_text("\r\n\x01h\x01gNo more notifications.\x01n");
-                        console.print_text("\r\nPress any key to continue...");
+                        console.print("\r\n\x01h\x01gNo more notifications.\x01n");
+                        console.print("\r\nPress any key to continue...");
                         console.getkey();
                         return;
                     }
@@ -1527,18 +1527,18 @@ function handleNotificationActions(allNotes, myNotes, index) {
     
     while (bbs.online && !js.terminated) {
         console.clear();
-        console.print_text("\r\n\x01h\x01c--- Notification Details ---\x01n\r\n\r\n");
+        console.print("\r\n\x01h\x01c--- Notification Details ---\x01n\r\n\r\n");
         
-        console.print_text(format("\x01h\x01wNotification %d of %d\x01n\r\n", index + 1, myNotes.length));
-        console.print_text(format("\x01h\x01wDate: \x01n%s\r\n", note.time || "Unknown"));
-        console.print_text(format("\x01h\x01wSubject: \x01n%s\r\n\r\n", note.subject || "No subject"));
-        console.print_text((note.body || "") + "\r\n\r\n");
+        console.print(format("\x01h\x01wNotification %d of %d\x01n\r\n", index + 1, myNotes.length));
+        console.print(format("\x01h\x01wDate: \x01n%s\r\n", note.time || "Unknown"));
+        console.print(format("\x01h\x01wSubject: \x01n%s\r\n\r\n", note.subject || "No subject"));
+        console.print((note.body || "") + "\r\n\r\n");
         
         var readStatus = note.read ? "\x01g(Read)\x01n" : "\x01r(Unread)\x01n";
-        console.print_text(format("\x01h\x01wStatus: \x01n%s\r\n\r\n", readStatus));
+        console.print(format("\x01h\x01wStatus: \x01n%s\r\n\r\n", readStatus));
         
-        console.print_text("\x01h\x01g[K]\x01n Keep (mark as read)  \x01h\x01c[R]\x01n Reply  \x01h\x01r[D]\x01n Delete  \x01h\x01w[Q]\x01n Back to notifications\r\n");
-        console.print_text("Enter your choice: ");
+        console.print("\x01h\x01g[K]\x01n Keep (mark as read)  \x01h\x01c[R]\x01n Reply  \x01h\x01r[D]\x01n Delete  \x01h\x01w[Q]\x01n Back to notifications\r\n");
+        console.print("Enter your choice: ");
         
         var choice = console.getkey().toUpperCase();
         
@@ -1548,8 +1548,8 @@ function handleNotificationActions(allNotes, myNotes, index) {
             // Mark as read and keep
             note.read = true;
             writeAchessNotifications(allNotes);
-            console.print_text("\r\n\x01h\x01gNotification marked as read.\x01n");
-            console.print_text("\r\nPress any key to continue...");
+            console.print("\r\n\x01h\x01gNotification marked as read.\x01n");
+            console.print("\r\nPress any key to continue...");
             console.getkey();
             return changed;
         } else if (choice === "R") {
@@ -1568,8 +1568,8 @@ function handleNotificationActions(allNotes, myNotes, index) {
                     }
                 }
                 writeAchessNotifications(allNotes);
-                console.print_text("\r\n\x01h\x01gNotification deleted successfully.\x01n");
-                console.print_text("\r\nPress any key to continue...");
+                console.print("\r\n\x01h\x01gNotification deleted successfully.\x01n");
+                console.print("\r\nPress any key to continue...");
                 console.getkey();
                 return true; // Indicate that changes were made
             }
@@ -1580,15 +1580,15 @@ function handleNotificationActions(allNotes, myNotes, index) {
 
 function replyToNotification(originalNote) {
     console.clear();
-    console.print_text("\r\n\x01h\x01c--- Reply to Notification ---\x01n\r\n\r\n");
+    console.print("\r\n\x01h\x01c--- Reply to Notification ---\x01n\r\n\r\n");
     
     // Extract sender from the notification (if available)
     // For game invitations and challenges, we might need to parse the body
     var replyTo = extractSenderFromNotification(originalNote);
     
     if (!replyTo) {
-        console.print_text("\x01h\x01rCannot determine sender for this notification. Reply canceled.\x01n\r\n");
-        console.print_text("Press any key to continue...");
+        console.print("\x01h\x01rCannot determine sender for this notification. Reply canceled.\x01n\r\n");
+        console.print("Press any key to continue...");
         console.getkey();
         return;
     }
@@ -1599,9 +1599,9 @@ function replyToNotification(originalNote) {
         subject = "Re: " + subject;
     }
     
-    console.print_text("\x01h\x01wTo: \x01n" + replyTo + "\r\n");
-    console.print_text("\x01h\x01wSubject: \x01n" + subject + "\r\n\r\n");
-    console.print_text("Enter your reply message (end with a single dot '.'): \r\n");
+    console.print("\x01h\x01wTo: \x01n" + replyTo + "\r\n");
+    console.print("\x01h\x01wSubject: \x01n" + subject + "\r\n\r\n");
+    console.print("Enter your reply message (end with a single dot '.'): \r\n");
     
     var body = "";
     while (true) {
@@ -1613,12 +1613,12 @@ function replyToNotification(originalNote) {
     if (body.trim()) {
         // Send the reply as a new Achess notification
         sendAchessNotification(replyTo, subject, body);
-        console.print_text("\r\n\x01h\x01gReply sent successfully!\x01n\r\n");
+        console.print("\r\n\x01h\x01gReply sent successfully!\x01n\r\n");
     } else {
-        console.print_text("\r\n\x01h\x01yReply canceled (empty message).\x01n\r\n");
+        console.print("\r\n\x01h\x01yReply canceled (empty message).\x01n\r\n");
     }
     
-    console.print_text("Press any key to continue...");
+    console.print("Press any key to continue...");
     console.getkey();
 }
 
@@ -1654,14 +1654,14 @@ function extractSenderFromNotification(note) {
     }
     
     // If we can't determine the sender, ask the user
-    console.print_text("\r\nCannot automatically determine reply recipient.\r\n");
-    console.print_text("Enter recipient username (or press Enter to cancel): ");
+    console.print("\r\nCannot automatically determine reply recipient.\r\n");
+    console.print("Enter recipient username (or press Enter to cancel): ");
     var manualRecipient = console.getstr(30);
     return manualRecipient.trim() || null;
 }
 
 function confirmDeleteNotification() {
-    console.print_text("\r\n\x01h\x01yAre you sure you want to delete this notification? (Y/N): \x01n");
+    console.print("\r\n\x01h\x01yAre you sure you want to delete this notification? (Y/N): \x01n");
     var confirm = console.getkey().toUpperCase();
     return confirm === "Y";
 }
@@ -1669,15 +1669,15 @@ function confirmDeleteNotification() {
 function interbbsListGamesAndMove() {
     var games = getMyInterBBSGames();
     if (!games || games.length === 0) {
-        console.print_text("\x01r\x01hNo active InterBBS games.\x01n\r\n");
-        console.print_text("Press any key to return to the menu...\r\n");
+        console.print("\x01r\x01hNo active InterBBS games.\x01n\r\n");
+        console.print("Press any key to return to the menu...\r\n");
         console.getkey();
         return;
     }
     
     console.clear();
-    console.print_text("\r\n\x01h\x01cActive InterBBS Games:\x01n\r\n");
-    console.print_text("\x01b" + repeatChar("=", 60) + "\x01n\r\n");
+    console.print("\r\n\x01h\x01cActive InterBBS Games:\x01n\r\n");
+    console.print("\x01b" + repeatChar("=", 60) + "\x01n\r\n");
     
     for (var i = 0; i < games.length; i++) {
         var g = games[i];
@@ -1686,22 +1686,22 @@ function interbbsListGamesAndMove() {
         var myColor = (g.players.white.user === user.alias) ? "White" : "Black";
         var turnIndicator = (g.turn === myColor.toLowerCase()) ? "\x01g[YOUR TURN]\x01n" : "\x01r[Waiting]\x01n";
         
-        console.print_text(format("[%d] vs %s @ %s  %s\r\n",
+        console.print(format("[%d] vs %s @ %s  %s\r\n",
             i + 1, opponent, opponentBBS, turnIndicator));
-        console.print_text(format("     Game ID: %s\r\n", g.game_id));
-        console.print_text(format("     Your color: %s  Current turn: %s\r\n", 
+        console.print(format("     Game ID: %s\r\n", g.game_id));
+        console.print(format("     Your color: %s  Current turn: %s\r\n", 
             myColor, g.turn === "white" ? "White" : "Black"));
-        console.print_text("\r\n");
+        console.print("\r\n");
     }
     
-    console.print_text("Select game number to view/move (or Q to quit): ");
+    console.print("Select game number to view/move (or Q to quit): ");
     var sel = console.getstr(2);
     if (!sel || sel.toUpperCase() === "Q") return;
     
     var idx = parseInt(sel);
     if (isNaN(idx) || idx < 1 || idx > games.length) {
-        console.print_text("Invalid selection.\r\n");
-        console.print_text("[Press any key]");
+        console.print("Invalid selection.\r\n");
+        console.print("[Press any key]");
         console.getkey();
         return;
     }
@@ -1745,9 +1745,9 @@ function interbbsListGamesAndMove() {
         
         console.gotoxy(1, 23);
         console.cleartoeol();
-        console.print_text("It's not your turn in this game.");
+        console.print("It's not your turn in this game.");
         console.gotoxy(1, 24);
-        console.print_text("Press any key to return to menu...");
+        console.print("Press any key to return to menu...");
         console.getkey();
         return;
     }
@@ -1761,12 +1761,12 @@ function interbbsListGamesAndMove() {
         console.gotoxy(1, 23);
         console.cleartoeol();
         if (chess.in_checkmate()) {
-            console.print_text("Game Over - Checkmate!");
+            console.print("Game Over - Checkmate!");
         } else {
-            console.print_text("Game Over - Draw!");
+            console.print("Game Over - Draw!");
         }
         console.gotoxy(1, 24);
-        console.print_text("Press any key to return to menu...");
+        console.print("Press any key to return to menu...");
         console.getkey();
         return;
     }
@@ -1778,10 +1778,10 @@ function interbbsListGamesAndMove() {
     }
 
     console.gotoxy(1, 23);
-    console.print_text("Material: " + getMaterialScore(getCapturedPieces(chess, 'w'), getCapturedPieces(chess, 'b')));
+    console.print("Material: " + getMaterialScore(getCapturedPieces(chess, 'w'), getCapturedPieces(chess, 'b')));
 
     console.gotoxy(1, 24);
-    console.print_text("Enter your move (try: e2e4, Nf3, or d4): ");
+    console.print("Enter your move (try: e2e4, Nf3, or d4): ");
 
     var move = console.getstr(8);
     
@@ -1825,7 +1825,7 @@ function interbbsListGamesAndMove() {
     if (!moveObj) {
         console.gotoxy(1, 25);
         console.cleartoeol();
-        console.print_text("Illegal move! Valid moves: e2e4, d2d4, Nf3, Ng1f3... Press any key");
+        console.print("Illegal move! Valid moves: e2e4, d2d4, Nf3, Ng1f3... Press any key");
         console.getkey();
         // Recursive call to try again
         interbbsListGamesAndMove();
@@ -1876,24 +1876,24 @@ function interbbsListGamesAndMove() {
     // Show success message
     console.gotoxy(1, 25);
     console.cleartoeol();
-    console.print_text("Move sent successfully! Press any key to continue...");
+    console.print("Move sent successfully! Press any key to continue...");
     console.getkey();
 }
 
 function sendInterBBSMessage() {
     var nodes = readNodes();
     if (!nodes.length) {
-        console.print_text("\r\nNo InterBBS node file found or no nodes listed.\r\n");
+        console.print("\r\nNo InterBBS node file found or no nodes listed.\r\n");
         return;
     }
-    console.print_text("\r\nAvailable BBSes:\r\n");
+    console.print("\r\nAvailable BBSes:\r\n");
     for (var i=0; i<nodes.length; i++) {
-        console.print_text(format("%2d. %-25s Address: %-15s\r\n", i+1, nodes[i].name||"", nodes[i].address||""));
+        console.print(format("%2d. %-25s Address: %-15s\r\n", i+1, nodes[i].name||"", nodes[i].address||""));
     }
-    console.print_text("Enter destination BBS number: ");
+    console.print("Enter destination BBS number: ");
     var idx = parseInt(console.getstr(2));
     if (isNaN(idx) || idx < 1 || idx > nodes.length) {
-        console.print_text("Invalid choice.\r\n");
+        console.print("Invalid choice.\r\n");
         return;
     }
     var node = nodes[idx-1];
@@ -1903,34 +1903,34 @@ function sendInterBBSMessage() {
     // Show available players on that BBS (if we have them)
     var players = getPlayersForNode(node.address);
     if (players.length > 0) {
-        console.print_text("\r\nKnown players on " + node.name + ":\r\n");
+        console.print("\r\nKnown players on " + node.name + ":\r\n");
         for (var i=0; i<players.length; i++) {
-            console.print_text(format("%2d. %s (Last seen: %s)\r\n", i+1, players[i].username, players[i].lastSeen || "Unknown"));
+            console.print(format("%2d. %s (Last seen: %s)\r\n", i+1, players[i].username, players[i].lastSeen || "Unknown"));
         }
-        console.print_text(format("%2d. Enter custom username\r\n", players.length+1));
-        console.print_text(format("%2d. Send to all users (broadcast)\r\n", players.length+2));
-        console.print_text("Select recipient: ");
+        console.print(format("%2d. Enter custom username\r\n", players.length+1));
+        console.print(format("%2d. Send to all users (broadcast)\r\n", players.length+2));
+        console.print("Select recipient: ");
         var pidx = parseInt(console.getstr(2));
         if (!isNaN(pidx) && pidx >= 1 && pidx <= players.length) {
             toUser = players[pidx-1].username;
         } else if (pidx === players.length + 1) {
-            console.print_text("Enter recipient's username: ");
+            console.print("Enter recipient's username: ");
             toUser = console.getstr(30);
         } else if (pidx === players.length + 2) {
             toUser = ""; // Broadcast to all users
         } else {
-            console.print_text("Invalid choice.\r\n");
+            console.print("Invalid choice.\r\n");
             return;
         }
     } else {
-        console.print_text("No known players on " + node.name + ".\r\n");
-        console.print_text("Enter recipient's username (or leave blank for broadcast): ");
+        console.print("No known players on " + node.name + ".\r\n");
+        console.print("Enter recipient's username (or leave blank for broadcast): ");
         toUser = console.getstr(30);
     }
     
-    console.print_text("Subject: ");
+    console.print("Subject: ");
     var subject = console.getstr(40);
-    console.print_text("Message (end with a single dot '.'): \r\n");
+    console.print("Message (end with a single dot '.'): \r\n");
     var body = "";
     while (true) {
         var line = console.getstr(80);
@@ -1960,13 +1960,13 @@ function sendInterBBSMessage() {
         f.write(JSON.stringify(msg, null, 2));
         f.close();
         if (toUser) {
-            console.print_text("Message sent to " + toUser + " at " + node.name + "\r\n");
+            console.print("Message sent to " + toUser + " at " + node.name + "\r\n");
         } else {
-            console.print_text("Broadcast message sent to all users at " + node.name + "\r\n");
+            console.print("Broadcast message sent to all users at " + node.name + "\r\n");
         }
-        console.print_text("Packet saved to: " + path + "\r\n");
+        console.print("Packet saved to: " + path + "\r\n");
     }
-    console.print_text("[Press any key]");
+    console.print("[Press any key]");
     console.getkey();
 }
 
@@ -2014,8 +2014,8 @@ function readNodes() {
 function showMessages() {
     var msgs = readMessages();
     if (!msgs.length) {
-        console.print_text("No messages received.\r\n");
-        console.print_text("Press any key to continue...\r\n");
+        console.print("No messages received.\r\n");
+        console.print("Press any key to continue...\r\n");
         console.getkey();
         return;
     }
@@ -2026,7 +2026,7 @@ function showMessages() {
     
     while (bbs.online && !js.terminated) {
         console.clear();
-        console.print_text("\r\n\x01h\x01c--- InterBBS Chess Messages ---\x01n\r\n");
+        console.print("\r\n\x01h\x01c--- InterBBS Chess Messages ---\x01n\r\n");
         
         // Display messages for current page
         var startIdx = currentPage * messagesPerPage;
@@ -2035,11 +2035,11 @@ function showMessages() {
         for (var i = startIdx; i < endIdx; i++) {
             var m = msgs[i];
             var unread = m.read ? "" : " \x01h\x01r(UNREAD)\x01n";
-            console.print_text(format("\x01h\x01g[%d]%s \x01w\x01hFrom: \x01n%s (\x01h%s\x01n)  Date: %s\r\n", 
+            console.print(format("\x01h\x01g[%d]%s \x01w\x01hFrom: \x01n%s (\x01h%s\x01n)  Date: %s\r\n", 
                 i+1, unread, m.from_bbs, m.from_user||"", m.created));
-            console.print_text(format("\x01h\x01wSubject: \x01n%s\r\n", m.subject));
-            console.print_text(m.body + "\r\n");
-            console.print_text("\x01b--------------------------------------------------\x01n\r\n");
+            console.print(format("\x01h\x01wSubject: \x01n%s\r\n", m.subject));
+            console.print(m.body + "\r\n");
+            console.print("\x01b--------------------------------------------------\x01n\r\n");
             
             // Mark as read
             msgs[i].read = true;
@@ -2049,9 +2049,9 @@ function showMessages() {
         writeMessages(msgs);
         
         // Show navigation instructions
-        console.print_text("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + "\x01n\r\n");
-        console.print_text("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  \x01h\x01c[#]\x01n Select message  \x01h\x01c[Q]\x01n Quit\r\n");
-        console.print_text("Enter your choice: ");
+        console.print("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + "\x01n\r\n");
+        console.print("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  \x01h\x01c[#]\x01n Select message  \x01h\x01c[Q]\x01n Quit\r\n");
+        console.print("Enter your choice: ");
         
         var input = console.getstr(5).toUpperCase();
         if (input === "Q") {
@@ -2075,15 +2075,15 @@ function handleMessageActions(msgs, index) {
     
     while (bbs.online && !js.terminated) {
         console.clear();
-        console.print_text("\r\n\x01h\x01c--- Message Details ---\x01n\r\n\r\n");
+        console.print("\r\n\x01h\x01c--- Message Details ---\x01n\r\n\r\n");
         
-        console.print_text(format("\x01h\x01wFrom: \x01n%s (\x01h%s\x01n)\r\n", msg.from_bbs, msg.from_user||""));
-        console.print_text(format("\x01h\x01wDate: \x01n%s\r\n", msg.created));
-        console.print_text(format("\x01h\x01wSubject: \x01n%s\r\n\r\n", msg.subject));
-        console.print_text(msg.body + "\r\n\r\n");
+        console.print(format("\x01h\x01wFrom: \x01n%s (\x01h%s\x01n)\r\n", msg.from_bbs, msg.from_user||""));
+        console.print(format("\x01h\x01wDate: \x01n%s\r\n", msg.created));
+        console.print(format("\x01h\x01wSubject: \x01n%s\r\n\r\n", msg.subject));
+        console.print(msg.body + "\r\n\r\n");
         
-        console.print_text("\x01h\x01c[R]\x01n Reply  \x01h\x01c[D]\x01n Delete  \x01h\x01c[Q]\x01n Back to messages\r\n");
-        console.print_text("Enter your choice: ");
+        console.print("\x01h\x01c[R]\x01n Reply  \x01h\x01c[D]\x01n Delete  \x01h\x01c[Q]\x01n Back to messages\r\n");
+        console.print("Enter your choice: ");
         
         var choice = console.getkey().toUpperCase();
         
@@ -2097,8 +2097,8 @@ function handleMessageActions(msgs, index) {
                 // Remove the message
                 msgs.splice(index, 1);
                 writeMessages(msgs);
-                console.print_text("\r\n\x01h\x01gMessage deleted successfully.\x01n\r\n");
-                console.print_text("Press any key to continue...");
+                console.print("\r\n\x01h\x01gMessage deleted successfully.\x01n\r\n");
+                console.print("Press any key to continue...");
                 console.getkey();
                 return;
             }
@@ -2108,7 +2108,7 @@ function handleMessageActions(msgs, index) {
 
 function replyToMessage(originalMsg) {
     console.clear();
-    console.print_text("\r\n\x01h\x01c--- Reply to Message ---\x01n\r\n\r\n");
+    console.print("\r\n\x01h\x01c--- Reply to Message ---\x01n\r\n\r\n");
     
     // Determine recipient and destination
     var recipient = originalMsg.from_user || "";
@@ -2126,8 +2126,8 @@ function replyToMessage(originalMsg) {
     }
     
     if (!targetNode) {
-        console.print_text("\x01h\x01rCannot determine destination BBS. Reply canceled.\x01n\r\n");
-        console.print_text("Press any key to continue...");
+        console.print("\x01h\x01rCannot determine destination BBS. Reply canceled.\x01n\r\n");
+        console.print("Press any key to continue...");
         console.getkey();
         return;
     }
@@ -2138,9 +2138,9 @@ function replyToMessage(originalMsg) {
         subject = "Re: " + subject;
     }
     
-    console.print_text("\x01h\x01wTo: \x01n" + recipient + " @ " + destBbs + "\r\n");
-    console.print_text("\x01h\x01wSubject: \x01n" + subject + "\r\n\r\n");
-    console.print_text("Enter your message (end with a single dot '.'): \r\n");
+    console.print("\x01h\x01wTo: \x01n" + recipient + " @ " + destBbs + "\r\n");
+    console.print("\x01h\x01wSubject: \x01n" + subject + "\r\n\r\n");
+    console.print("Enter your message (end with a single dot '.'): \r\n");
     
     var body = "";
     while (true) {
@@ -2174,17 +2174,17 @@ function replyToMessage(originalMsg) {
     if (f.open("w+")) {
         f.write(JSON.stringify(msg, null, 2));
         f.close();
-        console.print_text("\r\n\x01h\x01gMessage sent successfully!\x01n\r\n");
+        console.print("\r\n\x01h\x01gMessage sent successfully!\x01n\r\n");
     } else {
-        console.print_text("\r\n\x01h\x01rError saving message file.\x01n\r\n");
+        console.print("\r\n\x01h\x01rError saving message file.\x01n\r\n");
     }
     
-    console.print_text("Press any key to continue...");
+    console.print("Press any key to continue...");
     console.getkey();
 }
 
 function confirmDelete() {
-    console.print_text("\r\n\x01h\x01yAre you sure you want to delete this message? (Y/N): \x01n");
+    console.print("\r\n\x01h\x01yAre you sure you want to delete this message? (Y/N): \x01n");
     var confirm = console.getkey().toUpperCase();
     return confirm === "Y";
 }
@@ -2195,7 +2195,7 @@ function notifyUnreadMessages() {
     for (var i=0; i<msgs.length; i++)
         if (!msgs[i].read) unread++;
     if (unread)
-        console.print_text("\r\n\x01h\x01cYou have " + unread + " new InterBBS message(s)! Select '7' to read.\x01n\r\n");
+        console.print("\r\n\x01h\x01cYou have " + unread + " new InterBBS message(s)! Select '7' to read.\x01n\r\n");
 }
 
 function writeScoresASC() {
@@ -2385,29 +2385,29 @@ function chess_readScores() {
 function chess_showScores() {
     updateScoreFiles();
     if (file_exists(SCORES_ANS)) {
-        console.print_textfile(SCORES_ANS);
+        console.printfile(SCORES_ANS);
         console.getkey();
     } else {
-        console.print_text("\r\n[No high scores yet! Press any key]");
+        console.print("\r\n[No high scores yet! Press any key]");
         console.getkey();
     }
 }
 function renderScoresAnsi() {
     updateScoreFiles();
     if (file_exists(SCORES_ANS)) {
-        console.print_textfile(SCORES_ANS);
+        console.printfile(SCORES_ANS);
         return;
     }
-    console.print_text("\r\n[No high scores yet! Press any key]");
+    console.print("\r\n[No high scores yet! Press any key]");
     console.getkey();
 }
 function renderScoresAsc() {
     updateScoreFiles();
     if (file_exists(SCORES_ASC)) {
-        console.print_textfile(SCORES_ASC);
+        console.printfile(SCORES_ASC);
         return;
     }
-    console.print_text("\r\n[No high scores yet! Press any key]");
+    console.print("\r\n[No high scores yet! Press any key]");
     console.getkey();
 }
 
@@ -2418,22 +2418,22 @@ function drawChessBoard(chess, turnText, checkText, playerNames, savedMoves) {
     }
     
     console.clear();
-    console.print_text("\x01n");
+    console.print("\x01n");
 
     // Draw the board as before...
     if (file_exists(js.exec_dir + "cboard.ans")) {
         console.gotoxy(1, 1);
-        console.print_textfile(js.exec_dir + "cboard.ans");
+        console.printfile(js.exec_dir + "cboard.ans");
     } else {
-        console.print_text("\r\n[Missing cboard.ans ANSI board file!]\r\n");
+        console.print("\r\n[Missing cboard.ans ANSI board file!]\r\n");
     }
 
     // Draw chess pieces on the board - MODIFIED TO SHOW BLACK PIECES IN RED
     for (var r = 0; r < 8; r++) {
         console.gotoxy(startX - 2, startY + r * squareH + centerOffsetY + 2);
-        console.print_text(ranks[r]);
+        console.print(ranks[r]);
         console.gotoxy(startX + 8 * squareW + 1, startY + r * squareH + centerOffsetY + 2);
-        console.print_text(ranks[r]);
+        console.print(ranks[r]);
         for (var f = 0; f < 8; f++) {
             var square = files[f] + ranks[r];
             var piece = chess.get(square.toLowerCase());
@@ -2443,10 +2443,10 @@ function drawChessBoard(chess, turnText, checkText, playerNames, savedMoves) {
                 var symbol = piece.type.toUpperCase();
                 if (piece.color === "b") {
                     // Apply red color to black pieces
-                    console.print_text("\x01r\x01h" + symbol.toLowerCase() + "\x01n");
+                    console.print("\x01r\x01h" + symbol.toLowerCase() + "\x01n");
                 } else {
                     // White pieces in bright white
-                    console.print_text("\x01w\x01h" + symbol + "\x01n");
+                    console.print("\x01w\x01h" + symbol + "\x01n");
                 }
             }
         }
@@ -2493,24 +2493,24 @@ function drawChessBoard(chess, turnText, checkText, playerNames, savedMoves) {
     // Left player (top of sidebar)
     if (leftName) {
         console.gotoxy(infoX, y++);
-        console.print_text(padRight(leftName, namePad));
+        console.print(padRight(leftName, namePad));
         console.gotoxy(infoX, y++);
         if (leftColor === "white")
-            console.print_text("\x01w(white)\x01n");
+            console.print("\x01w(white)\x01n");
         else if (leftColor === "black")
-            console.print_text("\x01k(black)\x01n");
+            console.print("\x01k(black)\x01n");
         y++; // blank line after player
     }
 
     // Right player (below left player)
     if (rightName) {
         console.gotoxy(infoX, y++);
-        console.print_text(padRight(rightName, namePad));
+        console.print(padRight(rightName, namePad));
         console.gotoxy(infoX, y++);
         if (rightColor === "white")
-            console.print_text("\x01w(white)\x01n");
+            console.print("\x01w(white)\x01n");
         else if (rightColor === "black")
-            console.print_text("\x01k(black)\x01n");
+            console.print("\x01k(black)\x01n");
         y++; // blank line after player
     }
 
@@ -2520,27 +2520,27 @@ function drawChessBoard(chess, turnText, checkText, playerNames, savedMoves) {
     var material = getMaterialScore(capturedWhite, capturedBlack);
 
     console.gotoxy(infoX, y++);
-    console.print_text("\x01yMaterial:\x01n " + material);
+    console.print("\x01yMaterial:\x01n " + material);
     y++; // Add some space before move history
 
     // **NEW: Move History Display - Suggestion from C64Vette_ski :)**
     console.gotoxy(infoX, y++);
-    console.print_text("\x01cMove History:\x01n");
+    console.print("\x01cMove History:\x01n");
     
     var moveHistory = getMoveHistoryDisplay(chess, savedMoves);
     if (moveHistory.length > 0) {
         for (var i = 0; i < moveHistory.length; i++) {
             console.gotoxy(infoX, y++);
-            console.print_text("\x01w" + moveHistory[i] + "\x01n");
+            console.print("\x01w" + moveHistory[i] + "\x01n");
         }
     } else {
         console.gotoxy(infoX, y++);
-        console.print_text("\x01k(No moves yet)\x01n");
+        console.print("\x01k(No moves yet)\x01n");
     }
 
     if (checkText) {
         console.gotoxy(infoX, y++);
-        console.print_text("\x01c\x01h" + checkText + "\x01n");
+        console.print("\x01c\x01h" + checkText + "\x01n");
     }
 }
 
@@ -2685,7 +2685,7 @@ function showScrollerMenu(items, title, getDisplayText) {
     console.clear();
     if (title) {
         console.gotoxy(4, 4);
-        console.print_text("\x01w\x01h" + title + "\x01n");
+        console.print("\x01w\x01h" + title + "\x01n");
     }
     var selected = menu.GetVal();
     if (typeof selected !== "string") return null;
@@ -2707,8 +2707,8 @@ function chess_menu() {
         var introFile = js.exec_dir + "achess.ans";
         if (file_exists(introFile)) {
             console.clear();
-            console.print_textfile(introFile);
-            console.print_text("\r\n\x01w\x01hPress any key to continue...\x01n\r\n");
+            console.printfile(introFile);
+            console.print("\r\n\x01w\x01hPress any key to continue...\x01n\r\n");
             console.getkey();
         }
     }
@@ -2727,15 +2727,15 @@ function chess_menu() {
 
     function showHeader() {
         console.gotoxy(1, 2);
-        console.print_text("\x01w\x01h   A-NET Synchronet Chess v.21\r\n\r\n");
-        console.print_text("\x01w    Logged in as: " + user.alias + " (user #" + user.number + ")\r\n\r\n");
+        console.print("\x01w\x01h   A-NET Synchronet Chess v.21\r\n\r\n");
+        console.print("\x01w    Logged in as: " + user.alias + " (user #" + user.number + ")\r\n\r\n");
     }
 
     function showStatusMessage(message) {
         console.clear();
         showHeader();
-        console.print_text("\x01r\x01h" + message + "\x01n\r\n\r\n");
-        console.print_text("Press any key to return to the menu...\r\n");
+        console.print("\x01r\x01h" + message + "\x01n\r\n\r\n");
+        console.print("Press any key to return to the menu...\r\n");
         console.getkey();
     }
 
@@ -2776,10 +2776,10 @@ function chess_menu() {
         // --- Now clear the screen and display the confirmation! ---
         console.clear();
         showHeader(); // Optional: if you want the header
-        console.print_text("\r\nChess invitation sent to " + opp.alias + " via Achess notification.\r\n");
+        console.print("\r\nChess invitation sent to " + opp.alias + " via Achess notification.\r\n");
 
         // --- Ask if player wants to play real-time or take turns ---
-        console.print_text("\r\nPlay real-time (Y) or take turns (N)? [N]: ");
+        console.print("\r\nPlay real-time (Y) or take turns (N)? [N]: ");
         var resp = console.getkey().toUpperCase();
         var realTime = (resp === "Y");
 
@@ -2904,7 +2904,7 @@ function playVsPlayer(resume, saveObj) {
                     console.cleartoeol();
                     console.gotoxy(1, promptY);
                     console.cleartoeol();
-                    console.print_text(waitMsg + " (Q to quit)");
+                    console.print(waitMsg + " (Q to quit)");
                     
                     var key;
                     for (var t = 0; t < 20; t++) {
@@ -2962,7 +2962,7 @@ function playVsPlayer(resume, saveObj) {
                     console.cleartoeol();
                     console.gotoxy(1, promptY);
                     console.cleartoeol();
-                    console.print_text(waitMsg + " (Q to quit)");
+                    console.print(waitMsg + " (Q to quit)");
                     
                     var key = console.inkey(0.1);
                     if (key && key.toUpperCase() === "Q") {
@@ -3015,10 +3015,10 @@ function playVsPlayer(resume, saveObj) {
         var moveLine = turnText; 
         console.gotoxy(1, promptY-1);
         console.cleartoeol();
-        console.print_text("\x01w\x01h" + moveLine + "\x01n");
+        console.print("\x01w\x01h" + moveLine + "\x01n");
         console.gotoxy(1, promptY);
         console.cleartoeol();
-        console.print_text("\x01w\x01hEnter move (e.g. E2E4, Nf3, Q=quit, S=save): \x01n");
+        console.print("\x01w\x01hEnter move (e.g. E2E4, Nf3, Q=quit, S=save): \x01n");
         var move = console.getstr(8);
         if (!move) continue;
         if (move.toUpperCase() === "Q" || move.toUpperCase() === "S") {
@@ -3059,7 +3059,7 @@ function playVsPlayer(resume, saveObj) {
             showBoard(game.board, playerNames, turnText, checkText, savedMoves);
             
             console.gotoxy(11, 20);
-            console.print_text("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
+            console.print("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
             console.gotoxy(11, 21);
             
             var gameResult = "";
@@ -3093,20 +3093,20 @@ function playVsPlayer(resume, saveObj) {
             }
             
             var padLen = Math.floor((40 - gameResult.replace(/\x01./g, "").length) / 2);
-            console.print_text(repeatChar(" ", padLen) + gameResult);
+            console.print(repeatChar(" ", padLen) + gameResult);
             
             console.gotoxy(11, 22);
-            console.print_text(victoryMessage);
+            console.print(victoryMessage);
             
             console.gotoxy(11, 23);
-            console.print_text("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
+            console.print("\x01h\x01w" + repeatChar("-", 40) + "\x01n");
             
             game.finished = true;
             savePvPGame(game);
             deletePvPGame(game.id);
             
             console.gotoxy(11, 25);
-            console.print_text("\x01h\x01cPress any key to return to the menu...\x01n");
+            console.print("\x01h\x01cPress any key to return to the menu...\x01n");
             console.getkey();
             done = true;
         } else {
@@ -3172,9 +3172,9 @@ function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
             
             var flashChar = (Math.floor(time() * 2) % 2 === 0) ? "\x01r\x01h*\x01n" : "\x01r*\x01n";
             
-            console.print_text("\x01h\x01c" + alertLine + " " + flashChar + flashChar + "\x01n\r\n");
+            console.print("\x01h\x01c" + alertLine + " " + flashChar + flashChar + "\x01n\r\n");
         } else {
-            console.print_text(repeatSpace(menu_width) + "\r\n");
+            console.print(repeatSpace(menu_width) + "\r\n");
         }
 
         var menu = new DDLightbarMenu(menu_x, menu_y, menu_width + 4, menu_height);
@@ -3329,17 +3329,17 @@ function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
                             gameType = g.white + " vs " + g.black;
                         }
                         
-                        console.print_text("\r\n\x01h\x01cSelected Game: \x01w" + gameType + "\x01n\r\n");
+                        console.print("\r\n\x01h\x01cSelected Game: \x01w" + gameType + "\x01n\r\n");
                         if (g.timestamp) {
                             var d = new Date(g.timestamp);
-                            console.print_text("\x01cSaved: \x01w" + d.toLocaleDateString() + " " + d.toLocaleTimeString() + "\x01n\r\n");
+                            console.print("\x01cSaved: \x01w" + d.toLocaleDateString() + " " + d.toLocaleTimeString() + "\x01n\r\n");
                         }
                         
-                        console.print_text("\r\n\x01h\x01g[L]\x01n Load Game");
-                        console.print_text("  \x01h\x01r[D]\x01n Delete Game");
-                        console.print_text("  \x01h\x01c[B]\x01n Back to List");
-                        console.print_text("  \x01h\x01w[Q]\x01n Quit\r\n\r\n");
-                        console.print_text("Choose an option: ");
+                        console.print("\r\n\x01h\x01g[L]\x01n Load Game");
+                        console.print("  \x01h\x01r[D]\x01n Delete Game");
+                        console.print("  \x01h\x01c[B]\x01n Back to List");
+                        console.print("  \x01h\x01w[Q]\x01n Quit\r\n\r\n");
+                        console.print("Choose an option: ");
                         
                         var action = console.getkey().toUpperCase();
                         
@@ -3349,7 +3349,7 @@ function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
                             continue; // Back to game list
                         } else if (action === "D") {
                             // Confirm deletion
-                            console.print_text("\r\n\r\n\x01h\x01rAre you sure you want to delete this saved game? (Y/N): \x01n");
+                            console.print("\r\n\r\n\x01h\x01rAre you sure you want to delete this saved game? (Y/N): \x01n");
                             var confirm = console.getkey().toUpperCase();
                             
                             if (confirm === "Y") {
@@ -3368,8 +3368,8 @@ function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
                                     }
                                 }
                                 
-                                console.print_text("\r\n\x01h\x01gGame deleted successfully!\x01n");
-                                console.print_text("\r\nPress any key to continue...");
+                                console.print("\r\n\x01h\x01gGame deleted successfully!\x01n");
+                                console.print("\r\nPress any key to continue...");
                                 console.getkey();
                                 
                                 // If no games left, exit
@@ -3379,8 +3379,8 @@ function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
                                 }
                                 continue; // Back to game list
                             } else {
-                                console.print_text("\r\n\x01cDeletion cancelled.\x01n");
-                                console.print_text("\r\nPress any key to continue...");
+                                console.print("\r\n\x01cDeletion cancelled.\x01n");
+                                console.print("\r\nPress any key to continue...");
                                 console.getkey();
                                 continue; // Back to action menu for same game
                             }
@@ -3408,7 +3408,7 @@ function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
                     console.clear();
                     showHeader();
                     renderScoresAnsi();
-                    console.print_text("\r\nPress any key to return to the menu...\r\n");
+                    console.print("\r\nPress any key to return to the menu...\r\n");
                     console.getkey();
                     break;
                 case "notifications":
@@ -3463,30 +3463,30 @@ function readRegKey(filePath) {
 
 function showSignoff() {
     console.clear();
-    console.print_text("\r\n");
-    console.print_text("\x01n\x01w\x01h    Thanks for playing  - \x01r\x01h A-Net Synchronet Chess!\r\n");
-    console.print_text("\x01g\x01h\r\n\x01n");
-    console.print_text("\x01g     Brought to you by: \x01rSting\x01bRay\x01n - \x01hA-Net Online BBS\x01n\r\n");
-    console.print_text("\x01g\x01h\r\n\x01n");
-    console.print_text("\x01g\x01h\r\n\x01n");
-    console.print_text("\x01g\x01h\r\n\x01n");
-    console.print_text("\x01n\x01w\x01h                  Shout out to Cozmo!\r\n\x01n");
-    console.print_text("\x01g     Ansi Artwork By; Cozmo of Lunatics Unleashed BBS\x01h\r\n\x01n");
-    console.print_text("\x01g\x01h         Telnet:lunaticsunleashed.ddns.net:2333\r\n\x01n");
+    console.print("\r\n");
+    console.print("\x01n\x01w\x01h    Thanks for playing  - \x01r\x01h A-Net Synchronet Chess!\r\n");
+    console.print("\x01g\x01h\r\n\x01n");
+    console.print("\x01g     Brought to you by: \x01rSting\x01bRay\x01n - \x01hA-Net Online BBS\x01n\r\n");
+    console.print("\x01g\x01h\r\n\x01n");
+    console.print("\x01g\x01h\r\n\x01n");
+    console.print("\x01g\x01h\r\n\x01n");
+    console.print("\x01n\x01w\x01h                  Shout out to Cozmo!\r\n\x01n");
+    console.print("\x01g     Ansi Artwork By; Cozmo of Lunatics Unleashed BBS\x01h\r\n\x01n");
+    console.print("\x01g\x01h         Telnet:lunaticsunleashed.ddns.net:2333\r\n\x01n");
 
     var reg = readRegKey(js.exec_dir + "reg.key");
     if (reg.BBS || reg.Sysop) {
-        console.print_text("\r\n\r\n");
-        console.print_text("\x01c\x01hNow returning you to:\x01n\r\n");
-        console.print_text("\x01c\x01h\x01n\r\n");
+        console.print("\r\n\r\n");
+        console.print("\x01c\x01hNow returning you to:\x01n\r\n");
+        console.print("\x01c\x01h\x01n\r\n");
         if (reg.BBS)
-            console.print_text("\x01g\x01hBBS:\x01w " + reg.BBS + "\x01n\r\n");
+            console.print("\x01g\x01hBBS:\x01w " + reg.BBS + "\x01n\r\n");
         if (reg.Sysop)
-            console.print_text("\x01g\x01hSysop:\x01w " + reg.Sysop + "\x01n\r\n");
-        console.print_text("\r\n");
+            console.print("\x01g\x01hSysop:\x01w " + reg.Sysop + "\x01n\r\n");
+        console.print("\r\n");
     }
 
-    console.print_text("\x01w\x01hPress any key to continue...\x01n\r\n");
+    console.print("\x01w\x01hPress any key to continue...\x01n\r\n");
     console.getkey();
 }
 
