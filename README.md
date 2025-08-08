@@ -22,4 +22,4 @@ A-Net Online BBS
 HTTP://a-net.fyi
 Telnet: bbs.a-net.online:1337
 
-The ultimate InterBBS chess experience!
+The ultimate InterBBS chess experience!  https://a-net-online.lol/achess
