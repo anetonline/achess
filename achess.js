@@ -1,4 +1,4 @@
-// Synchronet ANSI Chess Game: Full rules, ANSI board, Player-vs-Computer or Player-vs-Player or InterBBS Chess
+// Synchronet ANSI Chess Game: Full rules, ANSI board, Player-vs-Computer or Player-vs-Player or InterBBS Chess v.251
 // Requires: chess.js (Synchronet-compatible), cboard.ans (ANSI board)
 //
 // Features: Game saving/loading per user, high score tracking and view, plain ASCII and Synchronet color score files,
@@ -279,7 +279,11 @@ function sendAchessNotification(to_alias, subject, body) {
 function getMyUnreadAchessNotifications() {
     var arr = readAchessNotifications();
     return arr.filter(function(n) {
-        return (!n.read) && n.to && n.to.toLowerCase() === user.alias.toLowerCase();
+        return (
+            !n.read &&
+            typeof n.to === "string" &&
+            n.to.toLowerCase() === user.alias.toLowerCase()
+        );
     });
 }
 
@@ -287,7 +291,11 @@ function markMyAchessNotificationsRead() {
     var arr = readAchessNotifications();
     var changed = false;
     for (var i=0; i<arr.length; i++) {
-        if (!arr[i].read && arr[i].to && arr[i].to.toLowerCase() === user.alias.toLowerCase()) {
+        if (
+            !arr[i].read &&
+            typeof arr[i].to === "string" &&
+            arr[i].to.toLowerCase() === user.alias.toLowerCase()
+        ) {
             arr[i].read = true;
             changed = true;
         }
@@ -1448,7 +1456,7 @@ function interbbsListChallenges() {
 function showAchessNotificationsInteractive() {
     var notes = readAchessNotifications();
     var myNotes = notes.filter(function(n) {
-        return n.to && n.to.toLowerCase() === user.alias.toLowerCase();
+        return typeof n.to === "string" && n.to.toLowerCase() === user.alias.toLowerCase();
     });
     
     if (!myNotes.length) {
@@ -1500,7 +1508,7 @@ function showAchessNotificationsInteractive() {
                     // Refresh the list if notifications were deleted
                     notes = readAchessNotifications();
                     myNotes = notes.filter(function(n) {
-                        return n.to && n.to.toLowerCase() === user.alias.toLowerCase();
+                        return typeof n.to === "string" && n.to.toLowerCase() === user.alias.toLowerCase();
                     });
                     
                     if (myNotes.length === 0) {
@@ -1944,7 +1952,7 @@ function sendInterBBSMessage() {
         address: getLocalBBS("address"),
         to_bbs: node.name,
         to_addr: node.address,
-        to_user: toUser, // Now properly set to the selected user
+        to_user: toUser, // Make sure this is set to the selected alias, NOT blank unless intended for broadcast
         from_user: user.alias,
         subject: subject,
         body: body,
