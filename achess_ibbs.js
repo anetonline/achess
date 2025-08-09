@@ -1,4 +1,4 @@
-// AChess InterBBS Utility
+// AChess InterBBS Utility v.251
 
 load("sbbsdefs.js");
 
@@ -1530,61 +1530,64 @@ function processInboundMove(packet) {
 // ProcessInboundMessage function
 function processInboundMessage(packet) {
     logEvent("Processing InterBBS message packet");
-    
+
     // Validate packet structure
     if (!packet || typeof packet !== 'object') {
         logEvent("ERROR: Invalid message packet - not an object");
         return false;
     }
-    
+
     // Handle both direct packet format and data-wrapped format
     var messageData = packet.data || packet;
-    
+
     // Log what we actually received
     logEvent("Message packet structure: " + Object.keys(packet).join(", "));
     if (packet.data) {
         logEvent("Message data keys: " + Object.keys(messageData).join(", "));
     }
-    
-    // Check for required fields - handle multiple packet formats
+
     // Check for required fields - handle multiple packet formats
     var hasFromInfo = false;
     var hasMessageBody = false;
-    
+
     // Check for from information (multiple possible formats) - UPDATED to handle root-level fields
-    if (messageData.from || 
+    if (
+        messageData.from ||
         (messageData.from_user && (messageData.from_bbs || messageData.bbs)) ||
         (messageData.from_user && messageData.from_address) ||
         (messageData.from_user && messageData.address) ||
-        (messageData.from_user && messageData.bbs && messageData.address)) {  // NEW: handle root level bbs+address
+        (messageData.from_user && messageData.bbs && messageData.address)
+    ) { // NEW: handle root level bbs+address
         hasFromInfo = true;
     }
-    
+
     // Check for message body - UPDATED to be more lenient
-    if ((messageData.message && messageData.message.trim() !== "") || 
+    if (
+        (messageData.message && messageData.message.trim() !== "") ||
         (messageData.body && messageData.body.trim() !== "") ||
-        (messageData.subject && messageData.subject.trim() !== "")) {  // NEW: allow subject-only messages
+        (messageData.subject && messageData.subject.trim() !== "")
+    ) { // NEW: allow subject-only messages
         hasMessageBody = true;
     }
-    
+
     // SPECIAL CASE: If it's a valid packet structure but no meaningful content, treat as a "ping" message
     if (!hasMessageBody && hasFromInfo && messageData.type === "message") {
         logEvent("Processing empty message packet as ping/status message");
-        hasMessageBody = true;  // Allow empty messages through
+        hasMessageBody = true; // Allow empty messages through
     }
-    
+
     if (!hasFromInfo || !hasMessageBody) {
         logEvent("ERROR: Invalid message packet - missing required fields (from info or message body)");
         logEvent("Available fields: " + Object.keys(messageData).join(', '));
-        
+
         // Log the actual values for debugging
         for (var key in messageData) {
             logEvent("  " + key + " = '" + messageData[key] + "'");
         }
-        
+
         return false;
     }
-    
+
     // Extract from information - handle both formats - UPDATED
     var fromUser, fromBBS, fromAddr;
     if (messageData.from && typeof messageData.from === 'object') {
@@ -1593,16 +1596,20 @@ function processInboundMessage(packet) {
         fromAddr = messageData.from.address || messageData.from_address || messageData.address;
     } else {
         fromUser = messageData.from_user;
-        fromBBS = messageData.from_bbs || messageData.bbs;  // Now includes 'bbs' fallback
+        fromBBS = messageData.from_bbs || messageData.bbs; // Now includes 'bbs' fallback
         fromAddr = messageData.from_address || messageData.address;
     }
-    
-    // Determine target user with case-insensitive matching
-    var targetUser = "ALL";
+
+    // Determine target user with case-insensitive matching - UPDATED FIX
+    var targetUser = null;
     var targetAlias = messageData.to_user || (messageData.to ? messageData.to.user : null);
-    
-    // Handle empty strings as well as null/undefined
-    if (targetAlias && targetAlias.trim() !== "") {
+
+    // Only default to ALL if explicitly set, not if blank
+    if (
+        typeof targetAlias === "string" &&
+        targetAlias.trim() !== "" &&
+        targetAlias.toUpperCase() !== "ALL"
+    ) {
         var resolvedUser = findLocalUser(targetAlias);
         if (resolvedUser && typeof resolvedUser === 'object' && resolvedUser.alias) {
             targetUser = resolvedUser.alias;
@@ -1610,11 +1617,15 @@ function processInboundMessage(packet) {
         } else if (resolvedUser && typeof resolvedUser === 'string') {
             targetUser = resolvedUser;
             logEvent("Message targeted to: " + targetAlias + " (using fallback: " + targetUser + ")");
+        } else {
+            targetUser = targetAlias;
+            logEvent("Message targeted to: " + targetAlias + " (using original alias)");
         }
     } else {
+        targetUser = "ALL";
         logEvent("Message has no specific target user, sending to ALL");
     }
-    
+
     var message = {
         from_user: fromUser,
         from_bbs: fromBBS,
@@ -1623,23 +1634,24 @@ function processInboundMessage(packet) {
         to_bbs: getLocalBBS("name"),
         to_addr: getLocalBBS("address"),
         subject: messageData.subject || "InterBBS Message",
-        body: messageData.message || messageData.body || messageData.subject || "[Empty Message/Ping]",  // UPDATED: fallback to subject or ping
+        body: messageData.message || messageData.body || messageData.subject || "[Empty Message/Ping]", // UPDATED: fallback to subject or ping
         created: messageData.created || strftime("%Y-%m-%d %H:%M:%S", time()),
         read: false
     };
-    
+
     var messages = readMessages();
     messages.push(message);
     writeMessages(messages);
-    
+
     // Send AChess notification about new message
     var subject = "New InterBBS Message!";
-    var body = "You have received a new InterBBS message!\r\n\r\n" +
-               "From: " + message.from_user + " @ " + message.from_bbs + "\r\n" +
-               "Subject: " + message.subject + "\r\n\r\n" +
-               "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.";
+    var body =
+        "You have received a new InterBBS message!\r\n\r\n" +
+        "From: " + message.from_user + " @ " + message.from_bbs + "\r\n" +
+        "Subject: " + message.subject + "\r\n\r\n" +
+        "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.";
     sendAchessNotification(targetUser, subject, body);
-    
+
     // Update player info - handle both packet formats
     var playerInfo = {
         user: fromUser,
@@ -1647,8 +1659,14 @@ function processInboundMessage(packet) {
         address: fromAddr
     };
     updatePlayerInfo(playerInfo);
-    
-    logEvent("Received message from " + message.from_user + " @ " + message.from_bbs + " (target: " + targetUser + ")");
+
+    logEvent(
+        "Received message from " +
+        message.from_user +
+        " @ " +
+        message.from_bbs +
+        " (target: " + targetUser + ")"
+    );
     return true;
 }
 
