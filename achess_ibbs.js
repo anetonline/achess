@@ -1,4 +1,4 @@
-// AChess InterBBS Utility v.251
+// AChess InterBBS Utility
 
 load("sbbsdefs.js");
 
@@ -247,6 +247,19 @@ function getLocalBBS(field) {
             return CONFIG.bbs.location || system.location || "Unknown";
         default: 
             return CONFIG.bbs[field] || "";
+    }
+}
+
+
+function verifyNotificationPath() {
+    // Ensure the notification file path is accessible
+    var testFile = new File(ACHESS_NOTIFY_FILE);
+    if (!testFile.exists) {
+        // Create empty array file
+        if (testFile.open("w")) {
+            testFile.write("[]");
+            testFile.close();
+        }
     }
 }
 
@@ -846,8 +859,6 @@ function processInboundPlayerListResponse(packet) {
     var players = loadInterBBSPlayers();
     var nodeAddress = packet.from.address || packet.from.bbs;
     
-    if (!players[nodeAddress]) players[nodeAddress] = [];
-    
     // Clear existing players for this node and add new ones
     players[nodeAddress] = [];
     
@@ -857,18 +868,28 @@ function processInboundPlayerListResponse(packet) {
             players[nodeAddress].push({
                 username: player.username,
                 lastSeen: player.lastSeen || strftime("%Y-%m-%d", time()),
-                gamesPlayed: 0,
-                wins: 0,
-                losses: 0,
-                draws: 0
+                gamesPlayed: player.gamesPlayed || 0,
+                wins: player.wins || 0,
+                losses: player.losses || 0,
+                draws: player.draws || 0
             });
         }
+        
+        logEvent("Updated player list from " + packet.from.bbs + " (" + packet.players.length + " players)");
     }
     
     saveInterBBSPlayers(players);
     updateNodeInfo(packet.from);
     
-    logEvent("Updated player list from " + packet.from.bbs + " (" + packet.players.length + " players)");
+    // Notify the requesting user
+    if (packet.to && packet.to.user) {
+        sendAchessNotification(packet.to.user, 
+            "Player List Updated", 
+            "Player list received from " + packet.from.bbs + "\r\n" +
+            "Found " + packet.players.length + " players.\r\n\r\n" +
+            "Return to InterBBS Challenge to see the updated list.");
+    }
+    
     return true;
 }
 
@@ -905,7 +926,11 @@ function getJSONFiles(inboundDir) {
     print("Using File object enumeration...\r\n");
     
     var now = time();
-    var patterns = ["chess_", "achess_", "packet_", "challenge_", "move_", "message_", "mail_"];
+    var patterns = [
+    "chess_", "achess_", "packet_", "challenge_", "move_", "message_", 
+    "mail_", "chess_ibbs_", "achess_ibbs_", "chess_playerlist_",
+    "achess_playerlist_", "achess_league_", "achess_registry_"
+    ];
     
     // Check last 7 days worth of potential filenames
     for (var days = 0; days < 7; days++) {
@@ -1364,6 +1389,8 @@ function processInboundChallenge(packet) {
     
     body += "\r\nGo to the Chess menu and select 'View/Respond to InterBBS Challenges' to accept or decline.";
     
+    // ADDED: Verify notification path before sending
+    verifyNotificationPath();
     sendAchessNotification(notificationTarget, subject, body);
     
     // Update databases
@@ -1512,6 +1539,8 @@ function processInboundMove(packet) {
             
             body += "Go to the Chess menu and select 'View/Move in My InterBBS Games' to see the board and make your move.";
             
+            // ADDED: Verify notification path before sending
+            verifyNotificationPath();
             sendAchessNotification(notificationTarget, subject, body);
             
             if (packet.from) {
@@ -1550,7 +1579,7 @@ function processInboundMessage(packet) {
     var hasFromInfo = false;
     var hasMessageBody = false;
 
-    // Check for from information (multiple possible formats) - UPDATED to handle root-level fields
+    // Check for from information (multiple possible formats) 
     if (
         messageData.from ||
         (messageData.from_user && (messageData.from_bbs || messageData.bbs)) ||
@@ -1650,6 +1679,9 @@ function processInboundMessage(packet) {
         "From: " + message.from_user + " @ " + message.from_bbs + "\r\n" +
         "Subject: " + message.subject + "\r\n\r\n" +
         "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.";
+    
+    // ADDED: Verify notification path before sending
+    verifyNotificationPath();
     sendAchessNotification(targetUser, subject, body);
 
     // Update player info - handle both packet formats
@@ -1787,7 +1819,6 @@ function updateNodeInfo(nodeInfo) {
     return true;
 }
 
-// Process node registry update packets - NEW FUNCTION
 function processInboundNodeRegistryUpdate(packet) {
     if (!packet.from || !packet.node_registry) {
         logEvent("Invalid node registry update - missing required fields");
@@ -1796,17 +1827,44 @@ function processInboundNodeRegistryUpdate(packet) {
     
     logEvent("Processing node registry update from " + packet.from.bbs);
     
-    // Only accept updates from league coordinator
-    if (packet.authority !== "league_coordinator") {
-        logEvent("Rejected node registry update - not from league coordinator");
+    // Get the LC address from the first node in chess_nodes.ini
+    var lcAddress = null;
+    var nodeFile = ACHESS_DATA_DIR + "chess_nodes.ini";
+    if (file_exists(nodeFile)) {
+        var f = new File(nodeFile);
+        if (f.open("r")) {
+            var lines = f.readAll();
+            f.close();
+            
+            // Look for [LeagueCoordinator] section
+            var inLCSection = false;
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (line === "[LeagueCoordinator]") {
+                    inLCSection = true;
+                } else if (line.indexOf("[") === 0) {
+                    inLCSection = false;
+                } else if (inLCSection && line.indexOf("address") === 0) {
+                    var m = line.match(/address\s*=\s*(.+)/);
+                    if (m) {
+                        lcAddress = m[1].trim();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Verify this is from the league coordinator
+    if (!lcAddress || packet.from.address !== lcAddress) {
+        logEvent("Rejected node registry update - not from authorized coordinator: " + 
+                packet.from.address + " (LC is: " + lcAddress + ")");
         return false;
     }
     
-    // Update our local node registry
     var currentNodes = loadInterBBSNodes();
     var updatedNodes = packet.node_registry;
     
-    // Merge with current nodes, preferring updates
     for (var address in updatedNodes) {
         currentNodes[address] = updatedNodes[address];
         logEvent("Updated node registry entry: " + address);
