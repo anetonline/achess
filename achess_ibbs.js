@@ -1836,26 +1836,29 @@ function processInboundNodeRegistryUpdate(packet) {
             var lines = f.readAll();
             f.close();
             
-            // Look for [LeagueCoordinator] section
-            var inLCSection = false;
+            // Look for the first [Node1] section - Node1 is ALWAYS the LC
             for (var i = 0; i < lines.length; i++) {
                 var line = lines[i].trim();
-                if (line === "[LeagueCoordinator]") {
-                    inLCSection = true;
-                } else if (line.indexOf("[") === 0) {
-                    inLCSection = false;
-                } else if (inLCSection && line.indexOf("address") === 0) {
-                    var m = line.match(/address\s*=\s*(.+)/);
-                    if (m) {
-                        lcAddress = m[1].trim();
-                        break;
+                if (line === "[Node1]") {
+                    // Found Node1, now get its address
+                    for (var j = i + 1; j < lines.length; j++) {
+                        var nextLine = lines[j].trim();
+                        if (nextLine.indexOf("[") === 0) break;
+                        if (nextLine.indexOf("address") === 0) {
+                            var m = nextLine.match(/address\s*=\s*(.+)/);
+                            if (m) {
+                                lcAddress = m[1].trim();
+                                break;
+                            }
+                        }
                     }
+                    break;
                 }
             }
         }
     }
     
-    // Verify this is from the league coordinator
+    // Verify this is from the league coordinator (Node1)
     if (!lcAddress || packet.from.address !== lcAddress) {
         logEvent("Rejected node registry update - not from authorized coordinator: " + 
                 packet.from.address + " (LC is: " + lcAddress + ")");
@@ -1880,10 +1883,7 @@ function processInboundNodeRegistryUpdate(packet) {
 // Helper function to send InterBBS message
 function sendInterBBSMessage(targetUser, fromInfo, subject, messageBody) {
     try {
-        // Implementation depends on your messaging system
-        // For Synchronet, you might use the message base API
         
-        // Example implementation:
         var msgbase = new MsgBase("mail");
         if (!msgbase.open()) {
             logEvent("ERROR: Could not open mail message base");
@@ -2728,8 +2728,8 @@ function runInteractiveMenu() {
         print("5. View InterBBS games                   6. View InterBBS messages\r\n");
         print("7. Show configuration                    8. Create test packets\r\n");
         print("9. Send test challenge                   C. Cleanup duplicate nodes\r\n");
-        print("V. Validate node registry                R. Registry status\r\n");
-        print("D. Distribute clean registry (LC only)   T. Debug packet\r\n");
+        print("V. Validate nodelist                     R. Nodelist status\r\n");
+        print("D. Distribute clean nodelist(LC only)    T. Debug packet\r\n");
         print("0. Exit\r\n");
         print(repeatChar("-", 60) + "\r\n");
         print("Choice: ");
