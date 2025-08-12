@@ -1,4 +1,4 @@
-// Synchronet ANSI Chess Game: Full rules, ANSI board, Player-vs-Computer or Player-vs-Player or InterBBS Chess v.251
+// Synchronet ANSI Chess Game: Full rules, ANSI board, Player-vs-Computer or Player-vs-Player or InterBBS Chess
 // Requires: chess.js (Synchronet-compatible), cboard.ans (ANSI board)
 //
 // Features: Game saving/loading per user, high score tracking and view, plain ASCII and Synchronet color score files,
@@ -162,13 +162,16 @@ function requestPlayerList(nodeAddress) {
             address: getLocalBBS("address"),
             user: user.alias
         },
-        to_bbs: targetNode.name,
-        to_addr: targetNode.address,
+        to: {
+            bbs: targetNode.name,
+            address: targetNode.address
+        },
         created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
     };
     
-    var fname = format("chess_playerlist_req_%s.json", 
-        nodeAddress.replace(/[^A-Za-z0-9]/g, "_"));
+    var fname = format("achess_playerlist_req_%s_%s.json", 
+        nodeAddress.replace(/[^A-Za-z0-9]/g, "_"),
+        time());
     var path = INTERBBS_OUT_DIR + fname;
     var f = new File(path);
     if (f.open("w+")) {
@@ -2002,20 +2005,30 @@ function readNodes() {
     if (!f.open("r")) return nodes;
     var lines = f.readAll();
     f.close();
-    var current = {};
-    for (var i=0; i<lines.length; i++) {
+    var current = null;
+    
+    for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim();
         if (!line || line[0] == "#") continue;
+        
         if (line[0] == "[") {
-            if (Object.keys(current).length)
+            // Save previous node if exists
+            if (current && current.name && current.address) {
                 nodes.push(current);
+            }
             current = {};
+        } else if (current) {
+            var m = line.match(/^(\w+)\s*=\s*(.+)$/);
+            if (m) {
+                current[m[1]] = m[2].trim();
+            }
         }
-        var m = line.match(/^(\w+)\s*=\s*(.+)$/);
-        if (m) current[m[1]] = m[2];
     }
-    if (Object.keys(current).length)
+    
+    if (current && current.name && current.address) {
         nodes.push(current);
+    }
+    
     return nodes;
 }
 
