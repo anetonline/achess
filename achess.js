@@ -2382,19 +2382,60 @@ function addScore(username, result, vs) {
 }
 function updateSummaryScoresFromRecent(scores) {
     var summary = {};
+    var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
+    summary[ourBBS] = {};
+    
     for (var i = 0; i < scores.length; i++) {
         var s = scores[i];
         var name = s.user;
-        if (!summary[name]) summary[name] = {wins:0, losses:0, draws:0};
+        if (!summary[ourBBS][name]) summary[ourBBS][name] = {wins:0, losses:0, draws:0, rating:1200};
         if (typeof s.result === "string") {
-            if (s.result.match(/win/i)) summary[name].wins++;
-            else if (s.result.match(/loss/i)) summary[name].losses++;
-            else if (s.result.match(/draw/i)) summary[name].draws++;
+            if (s.result.match(/win/i)) summary[ourBBS][name].wins++;
+            else if (s.result.match(/loss/i)) summary[ourBBS][name].losses++;
+            else if (s.result.match(/draw/i)) summary[ourBBS][name].draws++;
         }
     }
+    
+    // Calculate ratings
+    for (var player in summary[ourBBS]) {
+        var stats = summary[ourBBS][player];
+        stats.rating = 1200 + (stats.wins * 25) - (stats.losses * 15);
+    }
+    
     var f = new File(SCORES_SUMMARY);
     if (f.open("w+")) {
         f.write(JSON.stringify(summary, null, 2));
+        f.close();
+    }
+    
+    // Trigger InterBBS score sharing after updating
+    try {
+        // Only run if in main program, not during includes
+        if (typeof(runInterBBSScoreUpdate) === "function") {
+            runInterBBSScoreUpdate();
+        }
+    } catch(e) {
+        // Silently ignore if function not available
+    }
+}
+function runInterBBSScoreUpdate() {
+    // Check if the InterBBS script exists
+    var ibbsScript = js.exec_dir + "achess_ibbs.js";
+    if (file_exists(ibbsScript)) {
+        try {
+            system.exec(ibbsScript + " outbound", true);
+            logEvent("Triggered InterBBS score update");
+        } catch(e) {
+            logEvent("Error triggering InterBBS score update: " + e.toString());
+        }
+    }
+}
+
+function logEvent(message) {
+    var logFile = js.exec_dir + "achess.log";
+    var f = new File(logFile);
+    if (f.open("a")) {
+        f.writeln(strftime("%Y-%m-%d %H:%M:%S", time()) + " - " + message);
         f.close();
     }
 }
