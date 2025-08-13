@@ -3,20 +3,20 @@
 load("sbbsdefs.js");
 
 // Configuration file location
-var CONFIG_FILE = "/sbbs/xtrn/achess/bbs.cfg";
-var ACHESS_DATA_DIR = "/sbbs/xtrn/achess/";
+var CONFIG_FILE = js.exec_dir + "bbs.cfg";
+var ACHESS_DATA_DIR = js.exec_dir;
 
 // Default fallback configuration
 var DEFAULT_CONFIG = {
     bbs: {
         name: "A-Net Online",
-        address: "1:201/10",
+        address: "777:777/4",
         bbs: "A-Net Online BBS",
         operator: "StingRay"
     },
     directories: {
-        inbound: "/sbbs/filebase/inbound/",
-        outbound: "/sbbs/filebase/outbound/"
+        inbound: "/sbbs/fido/inbound/",
+        outbound: "/sbbs/fido/outbound/"
     },
     mailer: {
         type: "binkd",
@@ -201,6 +201,9 @@ function parseConfigFile(filename) {
 // Load configuration
 var CONFIG = parseConfigFile(CONFIG_FILE);
 
+// Initialize myBBS with CONFIG.bbs data
+var myBBS = CONFIG.bbs || DEFAULT_CONFIG.bbs;
+
 // Set global variables from config
 var INTERBBS_IN_DIR = CONFIG.directories.inbound;
 var INTERBBS_OUT_DIR = CONFIG.directories.outbound;
@@ -233,23 +236,24 @@ function logEvent(message) {
     print("LOG: " + message + "\r\n");
 }
 
-// Updated getLocalBBS function to use config
 function getLocalBBS(field) {
-    switch (field) {
-        case "name": 
-            return CONFIG.bbs.name || CONFIG.bbs.bbs || system.name || "Unknown BBS";
+    var bbsConfig = (typeof myBBS !== 'undefined' && myBBS) ? myBBS : 
+                   (CONFIG && CONFIG.bbs) ? CONFIG.bbs : DEFAULT_CONFIG.bbs;
+    
+    if (bbsConfig && bbsConfig[field]) return bbsConfig[field];
+    
+    switch(field) {
+        case "name": return system.name || "Unknown BBS";
         case "address": 
-            return CONFIG.bbs.address || (system.fido_addr_list ? system.fido_addr_list[0] : "1:1/1");
-        case "sysop": 
-        case "operator":
-            return CONFIG.bbs.operator || system.operator || "SysOp";
-        case "location": 
-            return CONFIG.bbs.location || system.location || "Unknown";
-        default: 
-            return CONFIG.bbs[field] || "";
+            // Try multiple sources for the address
+            if (bbsConfig && bbsConfig.address) return bbsConfig.address;
+            if (system.fidonet_addr) return system.fidonet_addr;
+            return "777:777/4"; // Your known address as fallback
+        case "bbs": return system.name || "Unknown BBS";
+        case "operator": return system.operator || "SysOp";
+        default: return "";
     }
 }
-
 
 function verifyNotificationPath() {
     // Ensure the notification file path is accessible
@@ -757,8 +761,169 @@ function loadScores() {
         return convertGamesToSummary(scores);
     }
     
-    // If it's already summary format, return as-is
+    // If it's an empty object, initialize with proper structure
+    if (Object.keys(scores).length === 0) {
+        var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
+        scores[ourBBS] = {};
+    }
+    
     return scores;
+}
+
+function updateSummaryScoresFromRecent(scores) {
+    var summary = {};
+    var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
+    summary[ourBBS] = {};
+    
+    for (var i = 0; i < scores.length; i++) {
+        var s = scores[i];
+        var name = s.user;
+        if (!summary[ourBBS][name]) summary[ourBBS][name] = {wins:0, losses:0, draws:0, rating:1200};
+        if (typeof s.result === "string") {
+            if (s.result.match(/win/i)) summary[ourBBS][name].wins++;
+            else if (s.result.match(/loss/i)) summary[ourBBS][name].losses++;
+            else if (s.result.match(/draw/i)) summary[ourBBS][name].draws++;
+        }
+    }
+    
+    // Calculate ratings
+    for (var player in summary[ourBBS]) {
+        var stats = summary[ourBBS][player];
+        stats.rating = 1200 + (stats.wins * 25) - (stats.losses * 15);
+    }
+    
+    var f = new File(SCORES_SUMMARY);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(summary, null, 2));
+        f.close();
+    }
+    
+    // Trigger InterBBS score sharing after updating
+    runInterBBSScoreUpdate();
+}
+
+function runInterBBSScoreUpdate() {
+    // Check if the InterBBS script exists
+    var ibbsScript = js.exec_dir + "achess_ibbs.js";
+    if (file_exists(ibbsScript)) {
+        try {
+            system.exec(ibbsScript + " outbound", true);
+            logEvent("Triggered InterBBS score update");
+        } catch(e) {
+            logEvent("Error triggering InterBBS score update: " + e.toString());
+        }
+    }
+}
+
+function logEvent(message) {
+    var logFile = js.exec_dir + "achess.log";
+    var f = new File(logFile);
+    if (f.open("a")) {
+        f.writeln(strftime("%Y-%m-%d %H:%M:%S", time()) + " - " + message);
+        f.close();
+    }
+}
+
+function getLocalBBS(field) {
+    if (myBBS && myBBS[field]) return myBBS[field];
+    switch(field) {
+        case "name": return system.name || "Unknown BBS";
+        case "address": 
+            // Try multiple sources for the address
+            if (myBBS && myBBS.address) return myBBS.address;
+            if (system.fidonet_addr) return system.fidonet_addr;
+            return "777:777/4"; // Your known address as fallback
+        case "bbs": return system.name || "Unknown BBS";
+        case "operator": return system.operator || "SysOp";
+        default: return "";
+    }
+}
+
+function addScore(username, result, vs) {
+    var scores = readScores();
+    if (!Array.isArray(scores)) scores = [];
+    var now = strftime("%Y-%m-%d %H:%M", time());
+    scores.push({
+        user: username,
+        result: result,
+        vs: vs,
+        date: now
+    });
+    while (scores.length > 30) scores.shift();
+    writeScores(scores);
+    updateSummaryScoresFromRecent(scores);
+    updateScoreFiles();
+}
+
+function readScores() {
+    if (!file_exists(SCORES_FILE)) return [];
+    var f = new File(SCORES_FILE);
+    if (!f.open("r")) return [];
+    var arr = JSON.parse(f.readAll().join(""));
+    f.close();
+    if (!Array.isArray(arr)) return [];
+    return arr;
+}
+
+function writeScores(scores) {
+    if (!Array.isArray(scores)) scores = [];
+    var f = new File(SCORES_FILE);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(scores, null, 2));
+        f.close();
+    }
+}
+
+function chess_readScores() {
+    if (!file_exists(SCORES_SUMMARY)) return {};
+    var f = new File(SCORES_SUMMARY);
+    if (!f.open("r")) return {};
+    var obj;
+    try {
+        obj = JSON.parse(f.readAll().join(""));
+    } catch(e) {
+        obj = {};
+        logEvent("Error reading scores summary: " + e.toString());
+    }
+    f.close();
+    
+    // Extract player scores from BBS structure if needed
+    var playerScores = {};
+    
+    // First check if it's already in the old format
+    if (obj && typeof obj === 'object' && !obj[getLocalBBS("name") + " (" + getLocalBBS("address") + ")"]) {
+        var hasPlayerEntries = false;
+        for (var key in obj) {
+            if (obj[key] && typeof obj[key] === 'object' && 
+                (typeof obj[key].wins !== 'undefined' || 
+                 typeof obj[key].losses !== 'undefined' || 
+                 typeof obj[key].draws !== 'undefined')) {
+                hasPlayerEntries = true;
+                break;
+            }
+        }
+        
+        if (hasPlayerEntries) {
+            // It's already in the old format, use as is
+            return obj;
+        }
+    }
+    
+    // If it's in the new format, extract our BBS's players
+    for (var bbsKey in obj) {
+        if (bbsKey === getLocalBBS("name") + " (" + getLocalBBS("address") + ")") {
+            return obj[bbsKey];
+        }
+    }
+    
+    // If we got here, it's neither format or empty
+    return {};
+}
+
+function updateScoreFiles() {
+    writeScoresANS();
+    writeScoresASC();
+    convertScoresAnsToAnsi();
 }
 
 function convertGamesToSummary(games) {
