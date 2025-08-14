@@ -1474,6 +1474,16 @@ function showAchessNotificationsInteractive() {
     var totalPages = Math.ceil(myNotes.length / notesPerPage);
     var selectedNotes = []; // Array to track selected notifications
     
+    // Helper function to check if a value exists in an array (instead of using includes())
+    function isInArray(arr, value) {
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] === value) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
     while (bbs.online && !js.terminated) {
         console.clear();
         console.print("\r\n\x01h\x01c--- Achess Notifications ---\x01n\r\n");
@@ -1485,11 +1495,18 @@ function showAchessNotificationsInteractive() {
         for (var i = startIdx; i < endIdx; i++) {
             var n = myNotes[i];
             var unread = n.read ? "" : " \x01h\x01r(UNREAD)\x01n";
-            var selected = selectedNotes.includes(i) ? " \x01h\x01g[X]\x01n" : " \x01h\x01w[ ]\x01n";
+            var selected = isInArray(selectedNotes, i) ? " \x01h\x01g[X]\x01n" : " \x01h\x01w[ ]\x01n";
             
             console.print(format("\x01h\x01g[%d]%s%s \x01w\x01hSubject: \x01n%s  Date: %s\r\n", 
                 i+1, selected, unread, n.subject || "No subject", n.time || ""));
-            console.print((n.body || "").substring(0, 60) + (n.body && n.body.length > 60 ? "..." : "") + "\r\n");
+            
+            // Safely truncate body text to prevent errors
+            var bodyText = n.body || "";
+            if (bodyText.length > 60) {
+                bodyText = bodyText.substring(0, 60) + "...";
+            }
+            console.print(bodyText + "\r\n");
+            
             console.print("\x01b--------------------------------------------------\x01n\r\n");
         }
         
@@ -1543,9 +1560,12 @@ function showAchessNotificationsInteractive() {
                 
                 // Create indices map between myNotes and the original notes array
                 var noteIndices = [];
+                var myNoteIndex = 0;
+                
                 for (var i = 0; i < notes.length; i++) {
                     if (typeof notes[i].to === "string" && notes[i].to.toLowerCase() === user.alias.toLowerCase()) {
-                        noteIndices.push(i);
+                        noteIndices[myNoteIndex] = i;
+                        myNoteIndex++;
                     }
                 }
                 
@@ -1553,9 +1573,15 @@ function showAchessNotificationsInteractive() {
                 for (var i = 0; i < selectedNotes.length; i++) {
                     var myNoteIdx = selectedNotes[i];
                     var origNoteIdx = noteIndices[myNoteIdx];
+                    
+                    // Skip if index is out of range (safety check)
+                    if (origNoteIdx === undefined || origNoteIdx < 0 || origNoteIdx >= notes.length) {
+                        continue;
+                    }
+                    
                     notes.splice(origNoteIdx, 1);
                     
-                    // Update indices for remaining notes
+                    // Update indices for remaining notes (they shift down after removal)
                     for (var j = 0; j < noteIndices.length; j++) {
                         if (noteIndices[j] > origNoteIdx) {
                             noteIndices[j]--;
@@ -1596,11 +1622,15 @@ function showAchessNotificationsInteractive() {
             
             if (confirm === "Y") {
                 // Remove all of the current user's notifications
-                notes = notes.filter(function(n) {
-                    return !(typeof n.to === "string" && n.to.toLowerCase() === user.alias.toLowerCase());
-                });
+                var newNotes = [];
+                for (var i = 0; i < notes.length; i++) {
+                    var note = notes[i];
+                    if (!(typeof note.to === "string" && note.to.toLowerCase() === user.alias.toLowerCase())) {
+                        newNotes.push(note);
+                    }
+                }
                 
-                writeAchessNotifications(notes);
+                writeAchessNotifications(newNotes);
                 
                 console.print("\r\n\x01h\x01gAll your notifications have been deleted.\x01n");
                 console.print("\r\nPress any key to continue...");
@@ -1611,14 +1641,25 @@ function showAchessNotificationsInteractive() {
             // Select/deselect a specific notification
             var noteNum = parseInt(input.substring(1)) - 1;
             if (!isNaN(noteNum) && noteNum >= 0 && noteNum < myNotes.length) {
-                var idx = selectedNotes.indexOf(noteNum);
-                if (idx === -1) {
+                var found = false;
+                var foundIndex = -1;
+                
+                // Find the note in the selected array
+                for (var i = 0; i < selectedNotes.length; i++) {
+                    if (selectedNotes[i] === noteNum) {
+                        found = true;
+                        foundIndex = i;
+                        break;
+                    }
+                }
+                
+                if (!found) {
                     // Select the notification
                     selectedNotes.push(noteNum);
                     console.print("\r\n\x01h\x01gNotification " + (noteNum + 1) + " selected.\x01n");
                 } else {
                     // Deselect the notification
-                    selectedNotes.splice(idx, 1);
+                    selectedNotes.splice(foundIndex, 1);
                     console.print("\r\n\x01h\x01yNotification " + (noteNum + 1) + " deselected.\x01n");
                 }
                 console.print("\r\nPress any key to continue...");
