@@ -124,12 +124,15 @@ function requestPlayerListFromAllNodes() {
         var node = nodes[address];
         print("Requesting from: " + node.name + " (" + address + ")\r\n");
         
+        // Generate a unique timestamp for each request to prevent overwriting
+        var timestamp = time() + "_" + Math.floor(Math.random() * 10000);
+        
         var requestPacket = {
             type: "player_list_request",
             from: {
                 bbs: getLocalBBS("name"),
                 address: getLocalBBS("address"),
-                user: "SYSTEM" // Use SYSTEM for automated requests
+                user: user ? user.alias : "SYSTEM" // Use actual user when available
             },
             to: {
                 bbs: node.name,
@@ -140,13 +143,16 @@ function requestPlayerListFromAllNodes() {
         
         var fname = format("achess_playerlist_req_%s_%s.json", 
             node.address.replace(/[^A-Za-z0-9]/g, "_"),
-            time());
+            timestamp);
         var path = INTERBBS_OUT_DIR + fname;
         var f = new File(path);
         if (f.open("w+")) {
             f.write(JSON.stringify(requestPacket, null, 2));
             f.close();
             successCount++;
+            print("  Request packet created: " + fname + "\r\n");
+        } else {
+            print("  ERROR: Could not create request packet for " + node.name + "\r\n");
         }
     }
     
@@ -1772,13 +1778,27 @@ function processInboundPlayerListResponse(packet) {
     saveInterBBSPlayers(players);
     updateNodeInfo(packet.from);
     
-    // Notify the requesting user
+    // Improved notification with better checking for the target user
     if (packet.to && packet.to.user) {
-        sendAchessNotification(packet.to.user, 
+        var targetUser = packet.to.user;
+        
+        // Try to find the user with case-insensitive matching if necessary
+        if (typeof findLocalUser === 'function') {
+            var resolvedUser = findLocalUser(targetUser);
+            if (resolvedUser && typeof resolvedUser === 'object' && resolvedUser.alias) {
+                targetUser = resolvedUser.alias;
+            } else if (resolvedUser && typeof resolvedUser === 'string') {
+                targetUser = resolvedUser;
+            }
+        }
+        
+        sendAchessNotification(targetUser, 
             "Player List Updated", 
             "Player list received from " + packet.from.bbs + "\r\n" +
             "Found " + packet.players.length + " players.\r\n\r\n" +
             "Return to InterBBS Challenge to see the updated list.");
+        
+        logEvent("Sent player list notification to " + targetUser);
     }
     
     return true;
