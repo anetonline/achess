@@ -111,6 +111,49 @@ function findLocalUser(targetUser) {
     }
 }
 
+function requestPlayerListFromAllNodes() {
+    var nodes = loadInterBBSNodes();
+    var successCount = 0;
+    
+    print("Requesting player lists from all known nodes...\r\n");
+    
+    for (var address in nodes) {
+        // Skip requesting from ourselves
+        if (address === getLocalBBS("address")) continue;
+        
+        var node = nodes[address];
+        print("Requesting from: " + node.name + " (" + address + ")\r\n");
+        
+        var requestPacket = {
+            type: "player_list_request",
+            from: {
+                bbs: getLocalBBS("name"),
+                address: getLocalBBS("address"),
+                user: "SYSTEM" // Use SYSTEM for automated requests
+            },
+            to: {
+                bbs: node.name,
+                address: node.address
+            },
+            created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+        };
+        
+        var fname = format("achess_playerlist_req_%s_%s.json", 
+            node.address.replace(/[^A-Za-z0-9]/g, "_"),
+            time());
+        var path = INTERBBS_OUT_DIR + fname;
+        var f = new File(path);
+        if (f.open("w+")) {
+            f.write(JSON.stringify(requestPacket, null, 2));
+            f.close();
+            successCount++;
+        }
+    }
+    
+    print("Sent " + successCount + " player list requests\r\n");
+    return successCount;
+}
+
 // Parse INI/CFG file
 function parseConfigFile(filename) {
     var config = {
@@ -472,45 +515,382 @@ function saveInterBBSNodes(nodes) {
     return true;
 }
 
+// Enhanced node cleanup function
 function cleanupDuplicateNodes() {
     print("=== NODE CLEANUP UTILITY ===\r\n");
     
     var nodes = loadInterBBSNodes();
-    var duplicates = findDuplicateNodes(nodes);
+    var masterNodes = isLeagueCoordinator() ? loadMasterNodeList() : {};
     
-    if (duplicates.length === 0) {
-        print("No duplicate nodes found.\r\n");
+    // Enhanced duplicate detection
+    var duplicates = [];
+    var addressMismatches = [];
+    var nameDuplicates = {};
+    
+    // First pass: Find name duplicates within local nodes list
+    for (var address in nodes) {
+        var node = nodes[address];
+        var normalizedName = node.name.toLowerCase().trim();
+        
+        if (!nameDuplicates[normalizedName]) {
+            nameDuplicates[normalizedName] = [];
+        }
+        nameDuplicates[normalizedName].push(address);
+    }
+    
+    // Process name duplicates
+    for (var name in nameDuplicates) {
+        if (nameDuplicates[name].length > 1) {
+            var addresses = nameDuplicates[name];
+            var names = addresses.map(function(addr) { return nodes[addr].name; });
+            
+            duplicates.push({
+                type: "duplicate_name",
+                addresses: addresses,
+                names: names,
+                normalized_name: name
+            });
+        }
+    }
+    
+    // Second pass: For LC only - check against master list
+    if (isLeagueCoordinator() && Object.keys(masterNodes).length > 0) {
+        // Check for nodes with wrong addresses compared to master list
+        for (var address in nodes) {
+            var node = nodes[address];
+            var normalizedName = node.name.toLowerCase().trim();
+            
+            // Check for nodes with same name but different address in master list
+            for (var masterAddr in masterNodes) {
+                var masterNode = masterNodes[masterAddr];
+                var masterNormalizedName = masterNode.name.toLowerCase().trim();
+                
+                if (masterAddr !== address && normalizedName === masterNormalizedName) {
+                    addressMismatches.push({
+                        type: "address_mismatch",
+                        current: address,
+                        master: masterAddr,
+                        name: node.name,
+                        master_name: masterNode.name
+                    });
+                    break;
+                }
+            }
+            
+            // Check for addresses in local list not in master list
+            if (!masterNodes[address]) {
+                duplicates.push({
+                    type: "not_in_master",
+                    addresses: [address],
+                    names: [node.name],
+                    normalized_name: normalizedName
+                });
+            }
+        }
+        
+        // Check for master nodes missing from local list
+        for (var masterAddr in masterNodes) {
+            if (!nodes[masterAddr]) {
+                duplicates.push({
+                    type: "missing_from_local",
+                    addresses: [masterAddr],
+                    names: [masterNodes[masterAddr].name],
+                    normalized_name: masterNodes[masterAddr].name.toLowerCase().trim(),
+                    master_node: masterNodes[masterAddr]
+                });
+            }
+        }
+    }
+    
+    print("Found " + duplicates.length + " node issues and " + 
+          addressMismatches.length + " address mismatches.\r\n\r\n");
+    
+    // Display duplicates first
+    if (duplicates.length > 0) {
+        print("=== NODE ISSUES ===\r\n");
+        for (var i = 0; i < duplicates.length; i++) {
+            var dup = duplicates[i];
+            print("Issue " + (i + 1) + ":\r\n");
+            print("  Type: " + dup.type + "\r\n");
+            
+            if (dup.type === "duplicate_name") {
+                print("  Multiple entries with same name found:\r\n");
+                for (var j = 0; j < dup.addresses.length; j++) {
+                    var addr = dup.addresses[j];
+                    var node = nodes[addr];
+                    print("    [" + addr + "] " + node.name + " (Last seen: " + (node.last_seen || "Never") + ")\r\n");
+                }
+            } else if (dup.type === "not_in_master") {
+                print("  Node exists in local list but not in master list:\r\n");
+                print("    [" + dup.addresses[0] + "] " + dup.names[0] + "\r\n");
+            } else if (dup.type === "missing_from_local") {
+                print("  Node exists in master list but not in local list:\r\n");
+                print("    [" + dup.addresses[0] + "] " + dup.names[0] + "\r\n");
+            }
+            
+            print("\r\n");
+        }
+    }
+    
+    // Display address mismatches next
+    if (addressMismatches.length > 0) {
+        print("=== ADDRESS MISMATCHES ===\r\n");
+        print("These nodes have the correct name but WRONG ADDRESS compared to master list.\r\n\r\n");
+        
+        for (var i = 0; i < addressMismatches.length; i++) {
+            var mismatch = addressMismatches[i];
+            print("Mismatch " + (i + 1) + ":\r\n");
+            print("  BBS Name: " + mismatch.name + "\r\n");
+            print("  Current Address: " + mismatch.current + "\r\n");
+            print("  CORRECT Address: " + mismatch.master + " (from master list)\r\n");
+            print("\r\n");
+        }
+    }
+    
+    if (duplicates.length === 0 && addressMismatches.length === 0) {
+        print("No issues found! Node list is clean.\r\n");
         return;
     }
     
-    print("Found " + duplicates.length + " potential duplicate issues:\r\n\r\n");
-    
-    for (var i = 0; i < duplicates.length; i++) {
-        var dup = duplicates[i];
-        print("Duplicate " + (i + 1) + ":\r\n");
-        print("  Type: " + dup.type + "\r\n");
-        print("  Addresses: " + dup.addresses.join(", ") + "\r\n");
-        print("  Names: " + dup.names.join(", ") + "\r\n");
-        print("\r\n");
-        
-        for (var j = 0; j < dup.addresses.length; j++) {
-            var addr = dup.addresses[j];
-            var node = nodes[addr];
-            print("    [" + addr + "] " + node.name + " (Last seen: " + node.last_seen + ")\r\n");
-        }
-        print("\r\n");
-    }
-    
-    print("Clean up these duplicates? (Y/N): ");
+    print("Clean up these issues? (Y/N): ");
     var confirm = console.getstr().toUpperCase();
     
     if (confirm === "Y") {
-        var cleaned = automaticCleanup(nodes, duplicates);
+        var cleaned = improvedAutomaticCleanup(nodes, duplicates, addressMismatches, masterNodes);
         saveInterBBSNodes(cleaned);
+        
+        // If LC, also update the master list
+        if (isLeagueCoordinator()) {
+            var f = new File(LC_MASTER_NODELIST);
+            if (f.open("w+")) {
+                f.write(JSON.stringify(cleaned, null, 2));
+                f.close();
+                print("Master node list updated.\r\n");
+            }
+            
+            // Ask if the user wants to automatically distribute the clean list
+            print("Distribute clean node list to all BBSes? (Y/N): ");
+            var distribute = console.getstr().toUpperCase();
+            if (distribute === "Y") {
+                distributeCleanNodeList();
+            }
+        }
+        
         print("Node cleanup completed!\r\n");
     } else {
         print("Cleanup cancelled.\r\n");
     }
+}
+
+// Improved automatic cleanup function that handles all issue types
+function improvedAutomaticCleanup(nodes, duplicates, addressMismatches, masterNodes) {
+    var cleaned = {};
+    var removed = [];
+    var corrected = [];
+    var added = [];
+    
+    // Start with a copy of the current nodes
+    for (var addr in nodes) {
+        cleaned[addr] = JSON.parse(JSON.stringify(nodes[addr]));
+    }
+    
+    // Process duplicates
+    for (var i = 0; i < duplicates.length; i++) {
+        var dup = duplicates[i];
+        
+        if (dup.type === "duplicate_name") {
+            // For duplicate names, keep the most recently seen node
+            var latest = null;
+            var latestTime = 0;
+            
+            for (var j = 0; j < dup.addresses.length; j++) {
+                var addr = dup.addresses[j];
+                var node = nodes[addr];
+                var lastSeenStr = node.last_seen || "1970-01-01T00:00:00Z";
+                var nodeTime = 0;
+                
+                try {
+                    nodeTime = new Date(lastSeenStr).getTime();
+                } catch(e) {
+                    // If parsing fails, use 0 (oldest possible time)
+                    nodeTime = 0;
+                }
+                
+                if (!latest || nodeTime > latestTime) {
+                    latest = addr;
+                    latestTime = nodeTime;
+                }
+            }
+            
+            // LC only: check if any address matches the master list
+            if (isLeagueCoordinator() && Object.keys(masterNodes).length > 0) {
+                for (var j = 0; j < dup.addresses.length; j++) {
+                    var addr = dup.addresses[j];
+                    if (masterNodes[addr]) {
+                        // This address exists in master list, prefer it over timestamp
+                        latest = addr;
+                        break;
+                    }
+                }
+            }
+            
+            // Remove all except the latest/master
+            for (var j = 0; j < dup.addresses.length; j++) {
+                var addr = dup.addresses[j];
+                if (addr !== latest) {
+                    delete cleaned[addr];
+                    removed.push(addr + " (" + nodes[addr].name + ")");
+                    logEvent("Removed duplicate node: " + addr + " (" + nodes[addr].name + ")");
+                }
+            }
+        } else if (dup.type === "not_in_master" && isLeagueCoordinator()) {
+            // Node exists in local but not in master - for LC, remove these
+            var addr = dup.addresses[0];
+            delete cleaned[addr];
+            removed.push(addr + " (" + nodes[addr].name + ") - not in master list");
+            logEvent("Removed node not in master list: " + addr);
+        } else if (dup.type === "missing_from_local" && isLeagueCoordinator()) {
+            // Node exists in master but not in local - for LC, add these
+            var addr = dup.addresses[0];
+            cleaned[addr] = dup.master_node;
+            added.push(addr + " (" + dup.master_node.name + ") - from master list");
+            logEvent("Added missing node from master list: " + addr);
+        }
+    }
+    
+    // Process address mismatches (only if we have the master list to reference)
+    if (isLeagueCoordinator() && addressMismatches.length > 0) {
+        for (var i = 0; i < addressMismatches.length; i++) {
+            var mismatch = addressMismatches[i];
+            
+            // Get the node data
+            var nodeData = cleaned[mismatch.current];
+            if (!nodeData) continue;
+            
+            // Remove the node with incorrect address
+            delete cleaned[mismatch.current];
+            
+            // Add it back with the correct address from master list
+            cleaned[mismatch.master] = masterNodes[mismatch.master] || {
+                name: nodeData.name,
+                address: mismatch.master,
+                sysop: nodeData.sysop || "",
+                location: nodeData.location || "",
+                last_seen: nodeData.last_seen || "Never"
+            };
+            
+            corrected.push(mismatch.current + " -> " + mismatch.master + " (" + nodeData.name + ")");
+            logEvent("Corrected address for " + nodeData.name + ": " + mismatch.current + " -> " + mismatch.master);
+        }
+    }
+    
+    // Summary report
+    if (removed.length > 0) {
+        print("\r\nRemoved " + removed.length + " duplicate/invalid entries:\r\n");
+        for (var i = 0; i < removed.length; i++) {
+            print("  - " + removed[i] + "\r\n");
+        }
+    }
+    
+    if (corrected.length > 0) {
+        print("\r\nCorrected " + corrected.length + " address mismatches:\r\n");
+        for (var i = 0; i < corrected.length; i++) {
+            print("  - " + corrected[i] + "\r\n");
+        }
+    }
+    
+    if (added.length > 0) {
+        print("\r\nAdded " + added.length + " nodes from master list:\r\n");
+        for (var i = 0; i < added.length; i++) {
+            print("  - " + added[i] + "\r\n");
+        }
+    }
+    
+    return cleaned;
+}
+
+// Enhanced automaticCleanup to handle address mismatches
+function automaticCleanup(nodes, duplicates, addressMismatches) {
+    var cleaned = {};
+    var removed = [];
+    var corrected = [];
+    
+    // Copy all nodes first
+    for (var addr in nodes) {
+        cleaned[addr] = nodes[addr];
+    }
+    
+    // Process duplicates
+    for (var i = 0; i < duplicates.length; i++) {
+        var dup = duplicates[i];
+        
+        if (dup.type === "duplicate_name") {
+            // Keep the most recently seen node
+            var latest = null;
+            var latestTime = 0;
+            
+            for (var j = 0; j < dup.addresses.length; j++) {
+                var addr = dup.addresses[j];
+                var node = nodes[addr];
+                var nodeTime = new Date(node.last_seen).getTime();
+                
+                if (!latest || nodeTime > latestTime) {
+                    latest = addr;
+                    latestTime = nodeTime;
+                }
+            }
+            
+            // Remove all except the latest
+            for (var j = 0; j < dup.addresses.length; j++) {
+                var addr = dup.addresses[j];
+                if (addr !== latest) {
+                    delete cleaned[addr];
+                    removed.push(addr + " (" + nodes[addr].name + ")");
+                    logEvent("Removed duplicate node: " + addr + " (" + nodes[addr].name + ")");
+                }
+            }
+        }
+    }
+    
+    // Process address mismatches (only if we have the master list to reference)
+    if (addressMismatches) {
+        for (var i = 0; i < addressMismatches.length; i++) {
+            var mismatch = addressMismatches[i];
+            
+            // Get the node data
+            var nodeData = cleaned[mismatch.current];
+            if (!nodeData) continue;
+            
+            // Remove the node with incorrect address
+            delete cleaned[mismatch.current];
+            
+            // Add it back with the correct address from master list
+            cleaned[mismatch.master] = {
+                name: nodeData.name,
+                address: mismatch.master, // Use the correct address
+                sysop: nodeData.sysop || "",
+                location: nodeData.location || "",
+                last_seen: nodeData.last_seen
+            };
+            
+            corrected.push(mismatch.current + " -> " + mismatch.master + " (" + nodeData.name + ")");
+            logEvent("Corrected address for " + nodeData.name + ": " + mismatch.current + " -> " + mismatch.master);
+        }
+    }
+    
+    print("Removed " + removed.length + " duplicate entries:\r\n");
+    for (var i = 0; i < removed.length; i++) {
+        print("  - " + removed[i] + "\r\n");
+    }
+    
+    if (corrected.length > 0) {
+        print("\r\nCorrected " + corrected.length + " address mismatches:\r\n");
+        for (var i = 0; i < corrected.length; i++) {
+            print("  - " + corrected[i] + "\r\n");
+        }
+    }
+    
+    return cleaned;
 }
 
 function findDuplicateNodes(nodes) {
@@ -596,6 +976,7 @@ function automaticCleanup(nodes, duplicates) {
     return cleaned;
 }
 
+// Enhanced validateNodeRegistration with strict address checking
 function validateNodeRegistration(nodeInfo) {
     // Add validation for required fields first
     if (!nodeInfo || typeof nodeInfo !== 'object') {
@@ -611,32 +992,60 @@ function validateNodeRegistration(nodeInfo) {
     // CRITICAL FIX: Handle missing name field safely
     var nodeName = nodeInfo.name || nodeInfo.bbs || ("Unknown BBS (" + nodeInfo.address + ")");
     
-    var nodes = loadInterBBSNodes();
-    
-    // Check if this address already exists
-    if (nodes[nodeInfo.address]) {
-        var existing = nodes[nodeInfo.address];
-        var existingName = existing.name || "Unknown BBS";
+    // For the LC, we check against the master list
+    if (isLeagueCoordinator()) {
+        var masterNodes = loadMasterNodeList();
         
-        // If same name, just update timestamp
-        if (existingName.toLowerCase() === nodeName.toLowerCase()) {
-            logEvent("Updated existing node: " + nodeInfo.address + " (" + nodeName + ")");
-            return true;
-        } else {
+        // If this is a new node, we can add it to the master list
+        if (!masterNodes[nodeInfo.address]) {
+            // Ensure the address doesn't exist with a different name
+            var nameConflict = false;
+            for (var addr in masterNodes) {
+                if (masterNodes[addr].name.toLowerCase() === nodeName.toLowerCase() && addr !== nodeInfo.address) {
+                    logEvent("WARNING: BBS name '" + nodeName + "' already registered with address " + addr);
+                    nameConflict = true;
+                    break;
+                }
+            }
+            
+            if (!nameConflict) {
+                // New valid node - add to master list
+                masterNodes[nodeInfo.address] = {
+                    name: nodeName,
+                    address: nodeInfo.address,
+                    sysop: nodeInfo.sysop || "",
+                    location: nodeInfo.location || "",
+                    last_seen: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+                };
+                
+                var f = new File(LC_MASTER_NODELIST);
+                if (f.open("w+")) {
+                    f.write(JSON.stringify(masterNodes, null, 2));
+                    f.close();
+                    logEvent("Added new node to master list: " + nodeInfo.address + " (" + nodeName + ")");
+                }
+            } else {
+                logEvent("Rejected new node due to name conflict: " + nodeInfo.address);
+                return false;
+            }
+        }
+    } else {
+        // For non-LC nodes, we need to check the local node list which should match LC's master list
+        var nodes = loadInterBBSNodes();
+        
+        // Only allow updates for nodes that already exist in our local list
+        if (!nodes[nodeInfo.address]) {
+            logEvent("WARNING: Unknown node address attempted registration: " + nodeInfo.address);
+            logEvent("New nodes must be registered with the League Coordinator first");
+            return false;
+        }
+        
+        // Ensure name matches
+        var existingName = nodes[nodeInfo.address].name || "Unknown BBS";
+        if (existingName.toLowerCase() !== nodeName.toLowerCase()) {
             logEvent("WARNING: Address " + nodeInfo.address + " trying to change name from '" + 
                     existingName + "' to '" + nodeName + "' - rejecting");
             return false;
-        }
-    }
-    
-    // Check if this BBS name already exists with different address
-    for (var addr in nodes) {
-        if (addr !== nodeInfo.address && nodes[addr].name) {
-            if (nodes[addr].name.toLowerCase() === nodeName.toLowerCase()) {
-                logEvent("WARNING: BBS name '" + nodeName + "' already registered at " + 
-                        addr + " - rejecting registration from " + nodeInfo.address);
-                return false;
-            }
         }
     }
     
@@ -668,8 +1077,40 @@ function distributeCleanNodeList() {
         return false;
     }
     
+    // First, ensure we have the latest master list
+    var masterNodes = loadMasterNodeList();
     var nodes = loadInterBBSNodes();
-    var cleanedNodes = validateAndDeduplicateNodes(nodes);
+    
+    // Check for discrepancies between master and local nodes
+    var discrepancies = 0;
+    for (var address in nodes) {
+        if (!masterNodes[address]) {
+            discrepancies++;
+        } else if (nodes[address].name !== masterNodes[address].name) {
+            discrepancies++;
+        }
+    }
+    
+    for (var address in masterNodes) {
+        if (!nodes[address]) {
+            discrepancies++;
+        }
+    }
+    
+    if (discrepancies > 0) {
+        print("\r\nWARNING: Found " + discrepancies + " discrepancies between local nodes and master list.\r\n");
+        print("You should run node cleanup before distributing.\r\n");
+        print("Continue anyway? (Y/N): ");
+        
+        var override = console.getstr().toUpperCase();
+        if (override !== "Y") {
+            print("Distribution cancelled.\r\n");
+            return false;
+        }
+    }
+    
+    // Use the master list as the definitive source if it exists and we're the LC
+    var cleanedNodes = Object.keys(masterNodes).length > 0 ? masterNodes : validateAndDeduplicateNodes(nodes);
     
     // Create node registry packet
     var registryPacket = {
@@ -969,21 +1410,18 @@ function processInboundPlayerListRequest(packet) {
         return false;
     }
     
-    // Get active local players (logged in recently)
+    // Get all local players, not just active ones
     var activePlayers = [];
     try {
         for (var i = 1; i <= system.lastuser; i++) {
             var u = new User(i);
             if (u.name && !u.deleted && !u.locked) {
-                // Check if they've logged in within the last 30 days
-                var thirtyDaysAgo = time() - (30 * 24 * 60 * 60);
-                if (u.stats.laston_date >= thirtyDaysAgo) {
-                    activePlayers.push({
-                        username: u.alias,
-                        lastSeen: strftime("%Y-%m-%d", u.stats.laston_date),
-                        totalCalls: u.stats.total_calls
-                    });
-                }
+                // Include all valid users, regardless of activity
+                activePlayers.push({
+                    username: u.alias,
+                    lastSeen: strftime("%Y-%m-%d", u.stats.laston_date),
+                    totalCalls: u.stats.total_calls
+                });
             }
         }
     } catch (e) {
@@ -1007,7 +1445,7 @@ function processInboundPlayerListRequest(packet) {
     var filepath = INTERBBS_OUT_DIR + filename;
     
     if (saveJSONFile(filepath, responsePacket)) {
-        logEvent("Sent player list response to " + packet.from.bbs);
+        logEvent("Sent player list response to " + packet.from.bbs + " with " + activePlayers.length + " players");
         return true;
     } else {
         logEvent("Failed to send player list response");
@@ -1984,6 +2422,55 @@ function updateNodeInfo(nodeInfo) {
     return true;
 }
 
+var LC_MASTER_NODELIST = js.exec_dir + "lc_master_nodes.json";
+
+// Function to create/update the master node list (LC only)
+function createMasterNodeList() {
+    if (!isLeagueCoordinator()) {
+        print("Only the League Coordinator can manage the master node list.\r\n");
+        return false;
+    }
+    
+    // Get current nodes
+    var nodes = loadInterBBSNodes();
+    
+    // Save to master file
+    var f = new File(LC_MASTER_NODELIST);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(nodes, null, 2));
+        f.close();
+        print("Master node list created/updated with " + Object.keys(nodes).length + " nodes.\r\n");
+        return true;
+    }
+    
+    print("Error: Could not create master node list.\r\n");
+    return false;
+}
+
+// Load the master node list (LC only)
+function loadMasterNodeList() {
+    if (!file_exists(LC_MASTER_NODELIST)) {
+        if (isLeagueCoordinator()) {
+            // Auto-create if LC
+            createMasterNodeList();
+        }
+        return {};
+    }
+    
+    var f = new File(LC_MASTER_NODELIST);
+    if (!f.open("r")) return {};
+    
+    var nodes = {};
+    try {
+        nodes = JSON.parse(f.read());
+    } catch(e) {
+        logEvent("Error parsing master node list: " + e.toString());
+    }
+    f.close();
+    
+    return nodes;
+}
+
 function processInboundNodeRegistryUpdate(packet) {
     if (!packet.from || !packet.node_registry) {
         logEvent("Invalid node registry update - missing required fields");
@@ -2894,7 +3381,13 @@ function runInteractiveMenu() {
         print("7. Show configuration                    8. Create test packets\r\n");
         print("9. Send test challenge                   C. Cleanup duplicate nodes\r\n");
         print("V. Validate nodelist                     R. Nodelist status\r\n");
-        print("D. Distribute clean nodelist(LC only)    T. Debug packet\r\n");
+        print("T. Debug packet                          P. Request player lists\r\n");
+        
+        // Only show LC-only options to the League Coordinator
+        if (isLeagueCoordinator()) {
+            print("D. Distribute clean nodelist            M. Manage master node list\r\n");
+        }
+        
         print("0. Exit\r\n");
         print(repeatChar("-", 60) + "\r\n");
         print("Choice: ");
@@ -2979,7 +3472,11 @@ function runInteractiveMenu() {
                 }
                 break;
             case "D":
-                distributeCleanNodeList();
+                if (isLeagueCoordinator()) {
+                    distributeCleanNodeList();
+                } else {
+                    print("This option is only available to the League Coordinator.\r\n");
+                }
                 break;
             case "T":
                 print("Debug Packet\r\n");
@@ -2989,6 +3486,38 @@ function runInteractiveMenu() {
                     debugMessagePacket(debugFile);
                 } else {
                     print("File not found or invalid\r\n");
+                }
+                break;
+            case "P":
+                requestPlayerListFromAllNodes();
+                break;
+            case "M":
+                if (isLeagueCoordinator()) {
+                    print("=== MASTER NODE LIST MANAGEMENT ===\r\n");
+                    print("1. Create/Update master node list\r\n");
+                    print("2. Validate all nodes against master list\r\n");
+                    print("3. Distribute master node list to all nodes\r\n");
+                    print("4. Back to main menu\r\n");
+                    print("Choice: ");
+                    
+                    var lcChoice = console.getstr();
+                    
+                    switch (lcChoice) {
+                        case "1":
+                            createMasterNodeList();
+                            break;
+                        case "2":
+                            cleanupDuplicateNodes();
+                            break;
+                        case "3":
+                            distributeCleanNodeList();
+                            break;
+                        default:
+                            print("Returning to main menu.\r\n");
+                            break;
+                    }
+                } else {
+                    print("This option is only available to the League Coordinator.\r\n");
                 }
                 break;
             case "0":
