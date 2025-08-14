@@ -160,7 +160,7 @@ function requestPlayerList(nodeAddress) {
         from: {
             bbs: getLocalBBS("name"),
             address: getLocalBBS("address"),
-            user: user.alias
+            user: user.alias // Use the actual requesting user instead of SYSTEM
         },
         to: {
             bbs: targetNode.name,
@@ -1472,6 +1472,7 @@ function showAchessNotificationsInteractive() {
     var currentPage = 0;
     var notesPerPage = 5;
     var totalPages = Math.ceil(myNotes.length / notesPerPage);
+    var selectedNotes = []; // Array to track selected notifications
     
     while (bbs.online && !js.terminated) {
         console.clear();
@@ -1484,15 +1485,22 @@ function showAchessNotificationsInteractive() {
         for (var i = startIdx; i < endIdx; i++) {
             var n = myNotes[i];
             var unread = n.read ? "" : " \x01h\x01r(UNREAD)\x01n";
-            console.print(format("\x01h\x01g[%d]%s \x01w\x01hSubject: \x01n%s  Date: %s\r\n", 
-                i+1, unread, n.subject || "No subject", n.time || ""));
-            console.print((n.body || "") + "\r\n");
+            var selected = selectedNotes.includes(i) ? " \x01h\x01g[X]\x01n" : " \x01h\x01w[ ]\x01n";
+            
+            console.print(format("\x01h\x01g[%d]%s%s \x01w\x01hSubject: \x01n%s  Date: %s\r\n", 
+                i+1, selected, unread, n.subject || "No subject", n.time || ""));
+            console.print((n.body || "").substring(0, 60) + (n.body && n.body.length > 60 ? "..." : "") + "\r\n");
             console.print("\x01b--------------------------------------------------\x01n\r\n");
         }
         
-        // Show navigation instructions
-        console.print("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + "\x01n\r\n");
-        console.print("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  \x01h\x01c[#]\x01n Select notification  \x01h\x01c[Q]\x01n Quit\r\n");
+        // Show navigation and selection instructions
+        console.print("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + 
+                     " - " + selectedNotes.length + " note(s) selected\x01n\r\n");
+        console.print("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  " + 
+                     "\x01h\x01c[#]\x01n Select notification  \x01h\x01c[Q]\x01n Quit\r\n");
+        console.print("\x01h\x01c[S#]\x01n Select/Deselect #  \x01h\x01c[A]\x01n Select All  " + 
+                     "\x01h\x01c[C]\x01n Clear All Selections\r\n");
+        console.print("\x01h\x01c[D]\x01n Delete Selected  \x01h\x01c[DA]\x01n Delete All\r\n");
         console.print("Enter your choice: ");
         
         var input = console.getstr(5).toUpperCase();
@@ -1502,6 +1510,120 @@ function showAchessNotificationsInteractive() {
             if (currentPage < totalPages - 1) currentPage++;
         } else if (input === "P") {
             if (currentPage > 0) currentPage--;
+        } else if (input === "A") {
+            // Select all notifications
+            selectedNotes = [];
+            for (var i = 0; i < myNotes.length; i++) {
+                selectedNotes.push(i);
+            }
+            console.print("\r\n\x01h\x01gAll notifications selected.\x01n");
+            console.print("\r\nPress any key to continue...");
+            console.getkey();
+        } else if (input === "C") {
+            // Clear all selections
+            selectedNotes = [];
+            console.print("\r\n\x01h\x01yAll selections cleared.\x01n");
+            console.print("\r\nPress any key to continue...");
+            console.getkey();
+        } else if (input === "D") {
+            // Delete selected notifications
+            if (selectedNotes.length === 0) {
+                console.print("\r\n\x01h\x01yNo notifications selected.\x01n");
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+                continue;
+            }
+            
+            console.print("\r\n\x01h\x01yDelete " + selectedNotes.length + " selected notification(s)? (Y/N): \x01n");
+            var confirm = console.getkey().toUpperCase();
+            
+            if (confirm === "Y") {
+                // Sort in descending order to avoid index shifting during removal
+                selectedNotes.sort(function(a, b) { return b - a; });
+                
+                // Create indices map between myNotes and the original notes array
+                var noteIndices = [];
+                for (var i = 0; i < notes.length; i++) {
+                    if (typeof notes[i].to === "string" && notes[i].to.toLowerCase() === user.alias.toLowerCase()) {
+                        noteIndices.push(i);
+                    }
+                }
+                
+                // Remove from the original array
+                for (var i = 0; i < selectedNotes.length; i++) {
+                    var myNoteIdx = selectedNotes[i];
+                    var origNoteIdx = noteIndices[myNoteIdx];
+                    notes.splice(origNoteIdx, 1);
+                    
+                    // Update indices for remaining notes
+                    for (var j = 0; j < noteIndices.length; j++) {
+                        if (noteIndices[j] > origNoteIdx) {
+                            noteIndices[j]--;
+                        }
+                    }
+                }
+                
+                writeAchessNotifications(notes);
+                
+                console.print("\r\n\x01h\x01gSelected notifications deleted.\x01n");
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+                
+                // Refresh the list
+                notes = readAchessNotifications();
+                myNotes = notes.filter(function(n) {
+                    return typeof n.to === "string" && n.to.toLowerCase() === user.alias.toLowerCase();
+                });
+                
+                if (myNotes.length === 0) {
+                    console.print("\r\n\x01h\x01gNo more notifications.\x01n");
+                    console.print("\r\nPress any key to continue...");
+                    console.getkey();
+                    return;
+                }
+                
+                // Reset selections and recalculate pages
+                selectedNotes = [];
+                totalPages = Math.ceil(myNotes.length / notesPerPage);
+                if (currentPage >= totalPages) {
+                    currentPage = totalPages - 1;
+                }
+            }
+        } else if (input === "DA") {
+            // Delete all notifications
+            console.print("\r\n\x01h\x01yAre you sure you want to delete ALL your notifications? (Y/N): \x01n");
+            var confirm = console.getkey().toUpperCase();
+            
+            if (confirm === "Y") {
+                // Remove all of the current user's notifications
+                notes = notes.filter(function(n) {
+                    return !(typeof n.to === "string" && n.to.toLowerCase() === user.alias.toLowerCase());
+                });
+                
+                writeAchessNotifications(notes);
+                
+                console.print("\r\n\x01h\x01gAll your notifications have been deleted.\x01n");
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+                return;
+            }
+        } else if (input.substring(0, 1) === "S" && input.length > 1) {
+            // Select/deselect a specific notification
+            var noteNum = parseInt(input.substring(1)) - 1;
+            if (!isNaN(noteNum) && noteNum >= 0 && noteNum < myNotes.length) {
+                var idx = selectedNotes.indexOf(noteNum);
+                if (idx === -1) {
+                    // Select the notification
+                    selectedNotes.push(noteNum);
+                    console.print("\r\n\x01h\x01gNotification " + (noteNum + 1) + " selected.\x01n");
+                } else {
+                    // Deselect the notification
+                    selectedNotes.splice(idx, 1);
+                    console.print("\r\n\x01h\x01yNotification " + (noteNum + 1) + " deselected.\x01n");
+                }
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+            }
         } else {
             // Check if it's a number for notification selection
             var noteNum = parseInt(input);
@@ -1522,6 +1644,7 @@ function showAchessNotificationsInteractive() {
                     }
                     
                     // Recalculate pages
+                    selectedNotes = [];
                     totalPages = Math.ceil(myNotes.length / notesPerPage);
                     if (currentPage >= totalPages) {
                         currentPage = totalPages - 1;
