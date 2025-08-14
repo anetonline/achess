@@ -146,21 +146,31 @@ function requestPlayerList(nodeAddress) {
     var nodes = readNodes();
     var targetNode = null;
     
+    console.print("\r\nLooking for node with address: " + nodeAddress + "\r\n");
+    
     for (var i = 0; i < nodes.length; i++) {
         if (nodes[i].address === nodeAddress) {
             targetNode = nodes[i];
+            console.print("Found node: " + nodes[i].name + "\r\n");
             break;
         }
     }
     
-    if (!targetNode) return false;
+    if (!targetNode) {
+        console.print("ERROR: Target node not found with address " + nodeAddress + "\r\n");
+        return false;
+    }
+    
+    // Generate unique request ID to prevent collisions
+    var requestId = "req_" + Math.floor(Math.random() * 100000) + "_" + time();
     
     var requestPacket = {
         type: "player_list_request",
+        request_id: requestId,  // Add a unique request ID
         from: {
             bbs: getLocalBBS("name"),
             address: getLocalBBS("address"),
-            user: user.alias // Use the actual requesting user instead of SYSTEM
+            user: user.alias  // Use actual user alias
         },
         to: {
             bbs: targetNode.name,
@@ -169,16 +179,21 @@ function requestPlayerList(nodeAddress) {
         created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
     };
     
+    console.print("Creating request packet for " + targetNode.name + "...\r\n");
+    
     var fname = format("achess_playerlist_req_%s_%s.json", 
-        nodeAddress.replace(/[^A-Za-z0-9]/g, "_"),
+        requestId, // Use the unique ID in the filename
         time());
     var path = INTERBBS_OUT_DIR + fname;
     var f = new File(path);
     if (f.open("w+")) {
         f.write(JSON.stringify(requestPacket, null, 2));
         f.close();
+        console.print("Request sent successfully. Packet: " + fname + "\r\n");
         return true;
     }
+    
+    console.print("ERROR: Could not create request file!\r\n");
     return false;
 }
 
