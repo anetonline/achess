@@ -424,6 +424,413 @@ function saveJSONFile(filename, data) {
     return false;
 }
 
+// PLAYER LIST DEBUG
+function debugPlayerLists() {
+    print("=== PLAYER LIST DEBUG ===\r\n");
+    
+    // 1. Check the player database
+    var players = loadInterBBSPlayers();
+    print("Player database contains entries for " + Object.keys(players).length + " nodes\r\n");
+    
+    for (var nodeAddress in players) {
+        print("Node " + nodeAddress + ": " + players[nodeAddress].length + " players\r\n");
+        if (players[nodeAddress].length > 0) {
+            print("  First few players: ");
+            for (var i = 0; i < Math.min(players[nodeAddress].length, 3); i++) {
+                print(players[nodeAddress][i].username + ", ");
+            }
+            print("\r\n");
+        }
+    }
+    
+    // 2. Check if we can find player list request packets in outbound
+    print("\r\nSearching for player list requests in outbound directory...\r\n");
+    var outFiles = directory(INTERBBS_OUT_DIR + "achess_playerlist_req_*.json");
+    if (outFiles && outFiles.length > 0) {
+        print("Found " + outFiles.length + " outbound player list request packets\r\n");
+    } else {
+        print("No outbound player list request packets found\r\n");
+    }
+    
+    // 3. Check if we can find player list response packets in inbound
+    print("\r\nSearching for player list responses in inbound directory...\r\n");
+    var inFiles = directory(INTERBBS_IN_DIR + "achess_playerlist_resp_*.json");
+    if (inFiles && inFiles.length > 0) {
+        print("Found " + inFiles.length + " inbound player list response packets\r\n");
+    } else {
+        print("No inbound player list response packets found\r\n");
+    }
+    
+    // 4. Check if node information is correctly configured
+    print("\r\nVerifying node configuration...\r\n");
+    var nodes = loadInterBBSNodes();
+    print("Node registry contains " + Object.keys(nodes).length + " nodes\r\n");
+    
+    var localNode = getLocalBBS("address");
+    print("Local BBS address: " + localNode + "\r\n");
+    
+    // Check if each node is properly defined
+    for (var address in nodes) {
+        var node = nodes[address];
+        if (!node.name || !node.address) {
+            print("WARNING: Node " + address + " has missing name or address\r\n");
+        }
+    }
+    
+    // 5. Log file checks
+    print("\r\nChecking log file for player list operations...\r\n");
+    var logFile = new File(INTERBBS_LOG_FILE);
+    if (logFile.open("r")) {
+        var lines = logFile.readAll();
+        logFile.close();
+        
+        var playerListLines = lines.filter(function(line) {
+            return line.indexOf("player list") !== -1;
+        });
+        
+        print("Found " + playerListLines.length + " log entries related to player lists\r\n");
+        if (playerListLines.length > 0) {
+            print("Most recent entries:\r\n");
+            for (var i = Math.max(0, playerListLines.length - 5); i < playerListLines.length; i++) {
+                print("  " + playerListLines[i] + "\r\n");
+            }
+        }
+    } else {
+        print("Could not open log file\r\n");
+    }
+    
+    print("\r\n=== END DEBUG ===\r\n");
+}
+
+// Assign LC in node list
+function setLeagueCoordinatorNode() {
+    if (!isLeagueCoordinator()) {
+        print("Only the current League Coordinator can transfer LC status.\r\n");
+        return false;
+    }
+    
+    print("=== SET LEAGUE COORDINATOR NODE ===\r\n");
+    print("This function allows you to designate which node is the League Coordinator.\r\n");
+    print("The LC node is always Node 1 in chess_nodes.ini and controls the master node list.\r\n\r\n");
+    
+    // Get existing master nodes
+    var masterNodes = loadMasterNodeList();
+    var nodeAddresses = Object.keys(masterNodes);
+    
+    if (nodeAddresses.length === 0) {
+        print("No nodes found in master list. Use option 2 to add nodes first.\r\n");
+        return false;
+    }
+    
+    // Display current LC status
+    var currentLC = getLocalBBS("address");
+    print("Current League Coordinator: " + currentLC + "\r\n");
+    
+    // Find current Node1 in nodes.ini
+    var currentNode1 = "";
+    var nodeFile = ACHESS_DATA_DIR + "chess_nodes.ini";
+    if (file_exists(nodeFile)) {
+        var f = new File(nodeFile);
+        if (f.open("r")) {
+            var lines = f.readAll();
+            f.close();
+            
+            // Look for the first [Node1] section
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (line === "[Node1]") {
+                    // Found Node1, now get its address
+                    for (var j = i + 1; j < lines.length; j++) {
+                        var nextLine = lines[j].trim();
+                        if (nextLine.indexOf("[") === 0) break;
+                        if (nextLine.indexOf("address") === 0) {
+                            var m = nextLine.match(/address\s*=\s*(.+)/);
+                            if (m) {
+                                currentNode1 = m[1].trim();
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (currentNode1) {
+        print("Current Node1 in chess_nodes.ini: " + currentNode1 + "\r\n");
+    } else {
+        print("WARNING: Could not determine current Node1 from chess_nodes.ini\r\n");
+    }
+    
+    // Display available nodes
+    print("\r\nAvailable nodes in master list:\r\n");
+    for (var i = 0; i < nodeAddresses.length; i++) {
+        var addr = nodeAddresses[i];
+        var node = masterNodes[addr];
+        print(format("%2d. %-25s  %s%s\r\n", 
+            i + 1, 
+            node.name, 
+            addr,
+            (addr === currentNode1) ? " (current Node1)" : ""
+        ));
+    }
+    
+    // Get selection
+    print("\r\nEnter node number to set as League Coordinator (1-" + nodeAddresses.length + "): ");
+    var nodeNum = parseInt(console.getstr());
+    
+    if (isNaN(nodeNum) || nodeNum < 1 || nodeNum > nodeAddresses.length) {
+        print("Invalid selection.\r\n");
+        return false;
+    }
+    
+    var selectedAddr = nodeAddresses[nodeNum - 1];
+    var selectedNode = masterNodes[selectedAddr];
+    
+    print("\r\nYou are about to set " + selectedNode.name + " (" + selectedAddr + ") as the League Coordinator.\r\n");
+    print("This will make it Node1 in the distributed chess_nodes.ini file.\r\n");
+    print("Are you sure? (YES to confirm): ");
+    
+    var confirm = console.getstr();
+    if (confirm !== "YES") {
+        print("Operation cancelled.\r\n");
+        return false;
+    }
+    
+    // Update nodes.ini to ensure selected node is Node1
+    var nodes = loadInterBBSNodes();
+    
+    // First, remove the selected node from the list if it exists
+    var selectedNodeData = null;
+    if (nodes[selectedAddr]) {
+        selectedNodeData = nodes[selectedAddr];
+        delete nodes[selectedAddr];
+    } else {
+        // If the node isn't in our local list, use data from master list
+        selectedNodeData = selectedNode;
+    }
+    
+    // Create a new nodes object with selected node as first entry
+    var newNodes = {};
+    newNodes[selectedAddr] = selectedNodeData;
+    
+    // Add all other nodes
+    for (var addr in nodes) {
+        if (addr !== selectedAddr) {
+            newNodes[addr] = nodes[addr];
+        }
+    }
+    
+    // Save the reordered nodes
+    saveInterBBSNodes(newNodes);
+    
+    // Update config.league.coordinator in bbs.cfg
+    var configFile = CONFIG_FILE;
+    var hasLeagueSection = false;
+    var hasCoordinatorLine = false;
+    
+    if (file_exists(configFile)) {
+        var f = new File(configFile);
+        if (f.open("r")) {
+            var lines = f.readAll();
+            f.close();
+            
+            // Check if [league] section and coordinator line exist
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (line === "[league]") {
+                    hasLeagueSection = true;
+                } else if (line.indexOf("coordinator") === 0) {
+                    hasCoordinatorLine = true;
+                    lines[i] = "coordinator = " + selectedAddr;
+                }
+            }
+            
+            // Add section and line if they don't exist
+            if (!hasLeagueSection) {
+                lines.push("");
+                lines.push("[league]");
+                lines.push("coordinator = " + selectedAddr);
+            } else if (!hasCoordinatorLine) {
+                // Find where to insert the coordinator line
+                for (var i = 0; i < lines.length; i++) {
+                    if (lines[i].trim() === "[league]") {
+                        lines.splice(i + 1, 0, "coordinator = " + selectedAddr);
+                        break;
+                    }
+                }
+            }
+            
+            // Write updated config
+            if (f.open("w")) {
+                f.write(lines.join("\r\n"));
+                f.close();
+                print("Updated bbs.cfg with new coordinator address.\r\n");
+            }
+        }
+    }
+    
+    print("\r\nLeague Coordinator set to " + selectedNode.name + " (" + selectedAddr + ")\r\n");
+    print("Node1 in chess_nodes.ini is now " + selectedAddr + "\r\n");
+    
+    // Ask if user wants to distribute the updated node list
+    print("\r\nDistribute updated node list to all BBSes? (Y/N): ");
+    var distribute = console.getstr().toUpperCase();
+    
+    if (distribute === "Y") {
+        distributeCleanNodeList();
+    }
+    
+    return true;
+}
+
+function distributeCleanNodeList() {
+    if (!isLeagueCoordinator()) {
+        print("Only the League Coordinator can distribute node lists.\r\n");
+        return false;
+    }
+    
+    print("=== DISTRIBUTE CLEAN NODE LIST ===\r\n");
+    print("This will send the current clean node list to all registered nodes.\r\n");
+    print("Continue? (Y/N): ");
+    
+    var confirm = console.getstr().toUpperCase();
+    if (confirm !== "Y") {
+        print("Distribution cancelled.\r\n");
+        return false;
+    }
+    
+    // First, ensure we have the latest master list
+    var masterNodes = loadMasterNodeList();
+    var nodes = loadInterBBSNodes();
+    
+    // IMPORTANT: Ensure LC is always Node1 in the distributed list
+    var lcAddress = getLocalBBS("address");
+    
+    // Find LC in the node list
+    var lcNode = null;
+    if (nodes[lcAddress]) {
+        lcNode = nodes[lcAddress];
+    } else {
+        // Create LC entry if missing
+        lcNode = {
+            name: getLocalBBS("name"),
+            address: lcAddress,
+            sysop: getLocalBBS("operator"),
+            location: "",
+            last_seen: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+        };
+    }
+    
+    // Re-create nodes with LC as first entry
+    var orderedNodes = {};
+    orderedNodes[lcAddress] = lcNode;
+    
+    // Add all other nodes
+    for (var address in nodes) {
+        if (address !== lcAddress) {
+            orderedNodes[address] = nodes[address];
+        }
+    }
+    
+    // Use the master list as the definitive source if it exists
+    var cleanedNodes = Object.keys(masterNodes).length > 0 ? 
+        reorderNodesWithLC(masterNodes, lcAddress) : 
+        validateAndDeduplicateNodes(orderedNodes);
+    
+    // Create node registry packet
+    var registryPacket = {
+        type: "node_registry_update",
+        from: {
+            bbs: getLocalBBS("name"),
+            address: getLocalBBS("address"),
+            user: "LEAGUE_COORDINATOR"
+        },
+        node_registry: cleanedNodes,
+        version: time(),
+        authority: "league_coordinator",
+        lc_address: lcAddress,  // Add LC address explicitly
+        created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+    };
+    
+    var sent = 0;
+    for (var address in cleanedNodes) {
+        if (address === getLocalBBS("address")) continue; // Don't send to ourselves
+        
+        var filename = "achess_registry_update_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
+        var filepath = INTERBBS_OUT_DIR + filename;
+        
+        if (saveJSONFile(filepath, registryPacket)) {
+            print("  Sent registry to " + cleanedNodes[address].name + "\r\n");
+            sent++;
+        }
+    }
+    
+    // Save our updated node list with LC as Node1
+    saveInterBBSNodes(cleanedNodes);
+    
+    print("Registry update sent to " + sent + " nodes.\r\n");
+    logEvent("Distributed clean node registry to " + sent + " nodes");
+    return true;
+}
+
+// Helper function to reorder nodes with LC as first entry
+function reorderNodesWithLC(nodes, lcAddress) {
+    var orderedNodes = {};
+    
+    // Add LC first if it exists
+    if (nodes[lcAddress]) {
+        orderedNodes[lcAddress] = nodes[lcAddress];
+    } else {
+        // Create LC entry if missing
+        orderedNodes[lcAddress] = {
+            name: getLocalBBS("name"),
+            address: lcAddress,
+            sysop: getLocalBBS("operator"),
+            location: "",
+            last_seen: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+        };
+    }
+    
+    // Add all other nodes
+    for (var address in nodes) {
+        if (address !== lcAddress) {
+            orderedNodes[address] = nodes[address];
+        }
+    }
+    
+    return validateAndDeduplicateNodes(orderedNodes);
+}
+
+// Helper function to reorder nodes with LC as first entry
+function reorderNodesWithLC(nodes, lcAddress) {
+    var orderedNodes = {};
+    
+    // Add LC first if it exists
+    if (nodes[lcAddress]) {
+        orderedNodes[lcAddress] = nodes[lcAddress];
+    } else {
+        // Create LC entry if missing
+        orderedNodes[lcAddress] = {
+            name: getLocalBBS("name"),
+            address: lcAddress,
+            sysop: getLocalBBS("operator"),
+            location: "",
+            last_seen: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+        };
+    }
+    
+    // Add all other nodes
+    for (var address in nodes) {
+        if (address !== lcAddress) {
+            orderedNodes[address] = nodes[address];
+        }
+    }
+    
+    return validateAndDeduplicateNodes(orderedNodes);
+}
+
 // Load InterBBS games
 function loadInterBBSGames() {
     return loadJSONFile(INTERBBS_GAMES_FILE, []);
@@ -1073,89 +1480,6 @@ function isLeagueCoordinator() {
     return myAddress === coordinatorAddress;
 }
 
-function distributeCleanNodeList() {
-    if (!isLeagueCoordinator()) {
-        print("Only the League Coordinator can distribute node lists.\r\n");
-        return false;
-    }
-    
-    print("=== DISTRIBUTE CLEAN NODE LIST ===\r\n");
-    print("This will send the current clean node list to all registered nodes.\r\n");
-    print("Continue? (Y/N): ");
-    
-    var confirm = console.getstr().toUpperCase();
-    if (confirm !== "Y") {
-        print("Distribution cancelled.\r\n");
-        return false;
-    }
-    
-    // First, ensure we have the latest master list
-    var masterNodes = loadMasterNodeList();
-    var nodes = loadInterBBSNodes();
-    
-    // Check for discrepancies between master and local nodes
-    var discrepancies = 0;
-    for (var address in nodes) {
-        if (!masterNodes[address]) {
-            discrepancies++;
-        } else if (nodes[address].name !== masterNodes[address].name) {
-            discrepancies++;
-        }
-    }
-    
-    for (var address in masterNodes) {
-        if (!nodes[address]) {
-            discrepancies++;
-        }
-    }
-    
-    if (discrepancies > 0) {
-        print("\r\nWARNING: Found " + discrepancies + " discrepancies between local nodes and master list.\r\n");
-        print("You should run node cleanup before distributing.\r\n");
-        print("Continue anyway? (Y/N): ");
-        
-        var override = console.getstr().toUpperCase();
-        if (override !== "Y") {
-            print("Distribution cancelled.\r\n");
-            return false;
-        }
-    }
-    
-    // Use the master list as the definitive source if it exists and we're the LC
-    var cleanedNodes = Object.keys(masterNodes).length > 0 ? masterNodes : validateAndDeduplicateNodes(nodes);
-    
-    // Create node registry packet
-    var registryPacket = {
-        type: "node_registry_update",
-        from: {
-            bbs: getLocalBBS("name"),
-            address: getLocalBBS("address"),
-            user: "LEAGUE_COORDINATOR"
-        },
-        node_registry: cleanedNodes,
-        version: time(),
-        authority: "league_coordinator",
-        created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
-    };
-    
-    var sent = 0;
-    for (var address in cleanedNodes) {
-        if (address === getLocalBBS("address")) continue; // Don't send to ourselves
-        
-        var filename = "achess_registry_update_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
-        var filepath = INTERBBS_OUT_DIR + filename;
-        
-        if (saveJSONFile(filepath, registryPacket)) {
-            print("  Sent registry to " + cleanedNodes[address].name + "\r\n");
-            sent++;
-        }
-    }
-    
-    print("Registry update sent to " + sent + " nodes.\r\n");
-    logEvent("Distributed clean node registry to " + sent + " nodes");
-    return true;
-}
-
 // Load players database
 function loadInterBBSPlayers() {
     return loadJSONFile(ACHESS_DATA_DIR + "players_db.json", {});
@@ -1761,6 +2085,7 @@ function processInboundPlayerListRequest(packet) {
     }
 }
 
+// Enhanced function to properly process player list responses from ALL nodes
 function processInboundPlayerListResponse(packet) {
     if (!packet.from || !packet.players) {
         logEvent("Invalid player list response - missing required fields");
@@ -1794,7 +2119,7 @@ function processInboundPlayerListResponse(packet) {
     saveInterBBSPlayers(players);
     updateNodeInfo(packet.from);
     
-    // Improved notification with better checking for the target user
+    // Notify the requesting user about the received player list
     if (packet.to && packet.to.user) {
         var targetUser = packet.to.user;
         
@@ -2804,54 +3129,87 @@ function processInboundNodeRegistryUpdate(packet) {
     
     logEvent("Processing node registry update from " + packet.from.bbs);
     
-    // Get the LC address from the first node in chess_nodes.ini
-    var lcAddress = null;
-    var nodeFile = ACHESS_DATA_DIR + "chess_nodes.ini";
-    if (file_exists(nodeFile)) {
-        var f = new File(nodeFile);
-        if (f.open("r")) {
-            var lines = f.readAll();
-            f.close();
-            
-            // Look for the first [Node1] section - Node1 is ALWAYS the LC
-            for (var i = 0; i < lines.length; i++) {
-                var line = lines[i].trim();
-                if (line === "[Node1]") {
-                    // Found Node1, now get its address
-                    for (var j = i + 1; j < lines.length; j++) {
-                        var nextLine = lines[j].trim();
-                        if (nextLine.indexOf("[") === 0) break;
-                        if (nextLine.indexOf("address") === 0) {
-                            var m = nextLine.match(/address\s*=\s*(.+)/);
-                            if (m) {
-                                lcAddress = m[1].trim();
-                                break;
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
+    // Get the LC address from the packet or fallback to Node1
+    var lcAddress = packet.lc_address;
+    if (!lcAddress) {
+        // Fallback: Look for address of first node in registry
+        for (var address in packet.node_registry) {
+            lcAddress = address;
+            break;
         }
     }
     
-    // Verify this is from the league coordinator (Node1)
+    // Verify this is from the league coordinator
     if (!lcAddress || packet.from.address !== lcAddress) {
         logEvent("Rejected node registry update - not from authorized coordinator: " + 
                 packet.from.address + " (LC is: " + lcAddress + ")");
         return false;
     }
     
-    var currentNodes = loadInterBBSNodes();
-    var updatedNodes = packet.node_registry;
+    // Process the node registry with LC as Node1
+    var orderedNodes = {};
     
-    for (var address in updatedNodes) {
-        currentNodes[address] = updatedNodes[address];
-        logEvent("Updated node registry entry: " + address);
+    // Add LC first
+    if (packet.node_registry[lcAddress]) {
+        orderedNodes[lcAddress] = packet.node_registry[lcAddress];
     }
     
-    saveInterBBSNodes(currentNodes);
+    // Add all other nodes
+    for (var address in packet.node_registry) {
+        if (address !== lcAddress) {
+            orderedNodes[address] = packet.node_registry[address];
+        }
+    }
+    
+    // Save the ordered nodes
+    saveInterBBSNodes(orderedNodes);
     updateNodeInfo(packet.from);
+    
+    // Update local config if needed
+    var configFile = CONFIG_FILE;
+    if (file_exists(configFile)) {
+        var f = new File(configFile);
+        if (f.open("r")) {
+            var lines = f.readAll();
+            f.close();
+            
+            var hasLeagueSection = false;
+            var hasCoordinatorLine = false;
+            
+            // Check if [league] section and coordinator line exist
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (line === "[league]") {
+                    hasLeagueSection = true;
+                } else if (line.indexOf("coordinator") === 0) {
+                    hasCoordinatorLine = true;
+                    lines[i] = "coordinator = " + lcAddress;
+                }
+            }
+            
+            // Add section and line if they don't exist
+            if (!hasLeagueSection) {
+                lines.push("");
+                lines.push("[league]");
+                lines.push("coordinator = " + lcAddress);
+            } else if (!hasCoordinatorLine) {
+                // Find where to insert the coordinator line
+                for (var i = 0; i < lines.length; i++) {
+                    if (lines[i].trim() === "[league]") {
+                        lines.splice(i + 1, 0, "coordinator = " + lcAddress);
+                        break;
+                    }
+                }
+            }
+            
+            // Write updated config
+            if (f.open("w")) {
+                f.write(lines.join("\r\n"));
+                f.close();
+                logEvent("Updated bbs.cfg with coordinator address: " + lcAddress);
+            }
+        }
+    }
     
     logEvent("Node registry updated successfully from " + packet.from.bbs);
     return true;
@@ -3825,7 +4183,8 @@ function runInteractiveMenu() {
                     print("4. Remove node from master list\r\n");
                     print("5. Validate all nodes against master list\r\n");
                     print("6. Distribute master node list to all nodes\r\n");
-                    print("7. Back to main menu\r\n");
+                    print("7. Set League Coordinator node\r\n");  // NEW OPTION
+                    print("8. Back to main menu\r\n");
                     print("Choice: ");
                     
                     var lcChoice = console.getstr();
@@ -3848,6 +4207,9 @@ function runInteractiveMenu() {
                             break;
                         case "6":
                             distributeCleanNodeList();
+                            break;
+                        case "7":
+                            setLeagueCoordinatorNode();
                             break;
                         default:
                             print("Returning to main menu.\r\n");
