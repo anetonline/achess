@@ -1367,6 +1367,294 @@ function updateScoreFiles() {
     convertScoresAnsToAnsi();
 }
 
+// Function to add a new node to the master list (LC only)
+function addNodeToMasterList() {
+    if (!isLeagueCoordinator()) {
+        print("Only the League Coordinator can modify the master node list.\r\n");
+        return false;
+    }
+    
+    print("=== ADD NEW NODE TO MASTER LIST ===\r\n");
+    
+    // Get existing master nodes
+    var masterNodes = loadMasterNodeList();
+    
+    // Get node information
+    print("Enter BBS Name: ");
+    var name = console.getstr();
+    if (!name || name.trim() === "") {
+        print("Error: BBS name cannot be empty.\r\n");
+        return false;
+    }
+    
+    print("Enter BBS Address (format: 777:777/X): ");
+    var address = console.getstr();
+    if (!address || address.trim() === "") {
+        print("Error: BBS address cannot be empty.\r\n");
+        return false;
+    }
+    
+    // Check if address already exists
+    if (masterNodes[address]) {
+        print("Error: A node with address " + address + " already exists.\r\n");
+        print("BBS: " + masterNodes[address].name + "\r\n");
+        print("Use option 3 to edit this node instead.\r\n");
+        return false;
+    }
+    
+    // Check if name already exists with different address
+    var normalizedName = name.toLowerCase().trim();
+    var nameExists = false;
+    var existingAddress = "";
+    
+    for (var addr in masterNodes) {
+        if (masterNodes[addr].name.toLowerCase().trim() === normalizedName) {
+            nameExists = true;
+            existingAddress = addr;
+            break;
+        }
+    }
+    
+    if (nameExists) {
+        print("Warning: A node with the same name already exists with address " + existingAddress + "\r\n");
+        print("Adding this node may create duplicates. Continue? (Y/N): ");
+        var confirm = console.getstr().toUpperCase();
+        if (confirm !== "Y") {
+            print("Addition cancelled.\r\n");
+            return false;
+        }
+    }
+    
+    // Get optional fields
+    print("Enter SysOp Name (optional): ");
+    var sysop = console.getstr();
+    
+    print("Enter Location (optional): ");
+    var location = console.getstr();
+    
+    // Create node entry
+    masterNodes[address] = {
+        name: name,
+        address: address,
+        sysop: sysop || "",
+        location: location || "",
+        last_seen: "Never"
+    };
+    
+    // Save master list
+    var f = new File(LC_MASTER_NODELIST);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(masterNodes, null, 2));
+        f.close();
+        print("\r\nNode added successfully to master list!\r\n");
+        
+        // Update local node list too
+        var nodes = loadInterBBSNodes();
+        nodes[address] = masterNodes[address];
+        saveInterBBSNodes(nodes);
+        print("Local node list also updated.\r\n");
+        
+        return true;
+    } else {
+        print("Error: Could not save master node list.\r\n");
+        return false;
+    }
+}
+
+// Function to edit an existing node in the master list (LC only)
+function editNodeInMasterList() {
+    if (!isLeagueCoordinator()) {
+        print("Only the League Coordinator can modify the master node list.\r\n");
+        return false;
+    }
+    
+    print("=== EDIT NODE IN MASTER LIST ===\r\n");
+    
+    // Get existing master nodes
+    var masterNodes = loadMasterNodeList();
+    
+    // Display available nodes
+    print("Available nodes in master list:\r\n");
+    var nodeAddresses = Object.keys(masterNodes);
+    
+    if (nodeAddresses.length === 0) {
+        print("No nodes found in master list. Use option 2 to add nodes.\r\n");
+        return false;
+    }
+    
+    for (var i = 0; i < nodeAddresses.length; i++) {
+        var addr = nodeAddresses[i];
+        var node = masterNodes[addr];
+        print(format("%2d. %-25s  %s\r\n", i + 1, node.name, addr));
+    }
+    
+    // Select node to edit
+    print("\r\nEnter node number to edit (1-" + nodeAddresses.length + "): ");
+    var nodeNum = parseInt(console.getstr());
+    
+    if (isNaN(nodeNum) || nodeNum < 1 || nodeNum > nodeAddresses.length) {
+        print("Invalid selection.\r\n");
+        return false;
+    }
+    
+    var selectedAddr = nodeAddresses[nodeNum - 1];
+    var selectedNode = masterNodes[selectedAddr];
+    
+    print("\r\nEditing node: " + selectedNode.name + " (" + selectedAddr + ")\r\n");
+    
+    // Get updated information - prefill with current values
+    print("Enter BBS Name [" + selectedNode.name + "]: ");
+    var name = console.getstr();
+    if (!name || name.trim() === "") {
+        name = selectedNode.name;
+    }
+    
+    // Address is handled specially since it's the key
+    var addressChanged = false;
+    var newAddress = "";
+    
+    print("Enter BBS Address [" + selectedAddr + "]: ");
+    newAddress = console.getstr();
+    if (!newAddress || newAddress.trim() === "") {
+        newAddress = selectedAddr;
+    } else if (newAddress !== selectedAddr) {
+        addressChanged = true;
+        
+        // Check if new address already exists
+        if (masterNodes[newAddress]) {
+            print("Error: A node with address " + newAddress + " already exists.\r\n");
+            print("Address change cancelled. Other fields will still be updated.\r\n");
+            addressChanged = false;
+            newAddress = selectedAddr;
+        }
+    }
+    
+    print("Enter SysOp Name [" + selectedNode.sysop + "]: ");
+    var sysop = console.getstr();
+    if (!sysop || sysop.trim() === "") {
+        sysop = selectedNode.sysop;
+    }
+    
+    print("Enter Location [" + selectedNode.location + "]: ");
+    var location = console.getstr();
+    if (!location || location.trim() === "") {
+        location = selectedNode.location;
+    }
+    
+    // Create updated node entry
+    var updatedNode = {
+        name: name,
+        address: newAddress,
+        sysop: sysop,
+        location: location,
+        last_seen: selectedNode.last_seen
+    };
+    
+    // If address changed, remove old entry and add new one
+    if (addressChanged) {
+        delete masterNodes[selectedAddr];
+        masterNodes[newAddress] = updatedNode;
+    } else {
+        masterNodes[selectedAddr] = updatedNode;
+    }
+    
+    // Save master list
+    var f = new File(LC_MASTER_NODELIST);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(masterNodes, null, 2));
+        f.close();
+        print("\r\nNode updated successfully in master list!\r\n");
+        
+        // Update local node list too
+        var nodes = loadInterBBSNodes();
+        if (addressChanged) {
+            delete nodes[selectedAddr];
+            nodes[newAddress] = updatedNode;
+        } else {
+            nodes[selectedAddr] = updatedNode;
+        }
+        saveInterBBSNodes(nodes);
+        print("Local node list also updated.\r\n");
+        
+        return true;
+    } else {
+        print("Error: Could not save master node list.\r\n");
+        return false;
+    }
+}
+
+// Function to remove a node from the master list (LC only)
+function removeNodeFromMasterList() {
+    if (!isLeagueCoordinator()) {
+        print("Only the League Coordinator can modify the master node list.\r\n");
+        return false;
+    }
+    
+    print("=== REMOVE NODE FROM MASTER LIST ===\r\n");
+    
+    // Get existing master nodes
+    var masterNodes = loadMasterNodeList();
+    
+    // Display available nodes
+    print("Available nodes in master list:\r\n");
+    var nodeAddresses = Object.keys(masterNodes);
+    
+    if (nodeAddresses.length === 0) {
+        print("No nodes found in master list.\r\n");
+        return false;
+    }
+    
+    for (var i = 0; i < nodeAddresses.length; i++) {
+        var addr = nodeAddresses[i];
+        var node = masterNodes[addr];
+        print(format("%2d. %-25s  %s\r\n", i + 1, node.name, addr));
+    }
+    
+    // Select node to remove
+    print("\r\nEnter node number to remove (1-" + nodeAddresses.length + "): ");
+    var nodeNum = parseInt(console.getstr());
+    
+    if (isNaN(nodeNum) || nodeNum < 1 || nodeNum > nodeAddresses.length) {
+        print("Invalid selection.\r\n");
+        return false;
+    }
+    
+    var selectedAddr = nodeAddresses[nodeNum - 1];
+    var selectedNode = masterNodes[selectedAddr];
+    
+    print("\r\nYou are about to remove: " + selectedNode.name + " (" + selectedAddr + ")\r\n");
+    print("This action cannot be undone.\r\n");
+    print("Are you sure? (YES to confirm): ");
+    
+    var confirm = console.getstr();
+    if (confirm !== "YES") {
+        print("Removal cancelled.\r\n");
+        return false;
+    }
+    
+    // Remove the node
+    delete masterNodes[selectedAddr];
+    
+    // Save master list
+    var f = new File(LC_MASTER_NODELIST);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(masterNodes, null, 2));
+        f.close();
+        print("\r\nNode removed successfully from master list!\r\n");
+        
+        // Update local node list too
+        var nodes = loadInterBBSNodes();
+        delete nodes[selectedAddr];
+        saveInterBBSNodes(nodes);
+        print("Local node list also updated.\r\n");
+        
+        return true;
+    } else {
+        print("Error: Could not save master node list.\r\n");
+        return false;
+    }
+}
+
 function convertGamesToSummary(games) {
     var summary = {};
     var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
@@ -3494,10 +3782,13 @@ function runInteractiveMenu() {
             case "M":
                 if (isLeagueCoordinator()) {
                     print("=== MASTER NODE LIST MANAGEMENT ===\r\n");
-                    print("1. Create/Update master node list\r\n");
-                    print("2. Validate all nodes against master list\r\n");
-                    print("3. Distribute master node list to all nodes\r\n");
-                    print("4. Back to main menu\r\n");
+                    print("1. Create/Update master node list from current nodes\r\n");
+                    print("2. Add new node to master list\r\n");
+                    print("3. Edit existing node in master list\r\n");
+                    print("4. Remove node from master list\r\n");
+                    print("5. Validate all nodes against master list\r\n");
+                    print("6. Distribute master node list to all nodes\r\n");
+                    print("7. Back to main menu\r\n");
                     print("Choice: ");
                     
                     var lcChoice = console.getstr();
@@ -3507,9 +3798,18 @@ function runInteractiveMenu() {
                             createMasterNodeList();
                             break;
                         case "2":
-                            cleanupDuplicateNodes();
+                            addNodeToMasterList();
                             break;
                         case "3":
+                            editNodeInMasterList();
+                            break;
+                        case "4":
+                            removeNodeFromMasterList();
+                            break;
+                        case "5":
+                            cleanupDuplicateNodes();
+                            break;
+                        case "6":
                             distributeCleanNodeList();
                             break;
                         default:
