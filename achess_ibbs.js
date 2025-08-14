@@ -119,20 +119,24 @@ function requestPlayerListFromAllNodes() {
     
     for (var address in nodes) {
         // Skip requesting from ourselves
-        if (address === getLocalBBS("address")) continue;
+        if (address === getLocalBBS("address")) {
+            print("Skipping self (" + address + ")\r\n");
+            continue;
+        }
         
         var node = nodes[address];
         print("Requesting from: " + node.name + " (" + address + ")\r\n");
         
-        // Generate a unique timestamp for each request to prevent overwriting
-        var timestamp = time() + "_" + Math.floor(Math.random() * 10000);
+        // Generate a unique request ID for each node
+        var requestId = "req_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + "_" + Math.floor(Math.random() * 10000);
         
         var requestPacket = {
             type: "player_list_request",
+            request_id: requestId,
             from: {
                 bbs: getLocalBBS("name"),
                 address: getLocalBBS("address"),
-                user: user ? user.alias : "SYSTEM" // Use actual user when available
+                user: (typeof user !== 'undefined' && user && user.alias) ? user.alias : "SYSTEM"
             },
             to: {
                 bbs: node.name,
@@ -141,18 +145,20 @@ function requestPlayerListFromAllNodes() {
             created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
         };
         
-        var fname = format("achess_playerlist_req_%s_%s.json", 
-            node.address.replace(/[^A-Za-z0-9]/g, "_"),
-            timestamp);
+        // Create a unique filename that won't collide with other requests
+        var fname = "achess_playerlist_req_" + requestId + ".json";
         var path = INTERBBS_OUT_DIR + fname;
+        
         var f = new File(path);
         if (f.open("w+")) {
             f.write(JSON.stringify(requestPacket, null, 2));
             f.close();
             successCount++;
             print("  Request packet created: " + fname + "\r\n");
+            logEvent("Sent player list request to " + node.name + " (" + address + ")");
         } else {
             print("  ERROR: Could not create request packet for " + node.name + "\r\n");
+            logEvent("ERROR: Failed to create player list request for " + node.name);
         }
     }
     
@@ -1704,6 +1710,8 @@ function processInboundPlayerListRequest(packet) {
         return false;
     }
     
+    logEvent("Received player list request from " + packet.from.bbs + " (" + packet.from.user + ")");
+    
     // Get all local players, not just active ones
     var activePlayers = [];
     try {
@@ -1718,6 +1726,8 @@ function processInboundPlayerListRequest(packet) {
                 });
             }
         }
+        
+        logEvent("Gathered " + activePlayers.length + " local players for response");
     } catch (e) {
         logEvent("Error getting local users: " + e.message);
     }
@@ -1725,6 +1735,7 @@ function processInboundPlayerListRequest(packet) {
     // Send response packet
     var responsePacket = {
         type: "player_list_response", 
+        request_id: packet.request_id || "auto_" + time(), // Echo back request ID if present
         from: {
             bbs: getLocalBBS("name"),
             address: getLocalBBS("address"),
@@ -1735,14 +1746,17 @@ function processInboundPlayerListRequest(packet) {
         created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
     };
     
-    var filename = "achess_playerlist_resp_" + packet.from.address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
+    // Generate a unique filename with timestamp and request ID
+    var uniquePart = packet.request_id || ("resp_" + Math.floor(Math.random() * 100000));
+    var filename = "achess_playerlist_resp_" + uniquePart + "_" + time() + ".json";
     var filepath = INTERBBS_OUT_DIR + filename;
     
     if (saveJSONFile(filepath, responsePacket)) {
         logEvent("Sent player list response to " + packet.from.bbs + " with " + activePlayers.length + " players");
+        logEvent("Response file: " + filename);
         return true;
     } else {
-        logEvent("Failed to send player list response");
+        logEvent("Failed to send player list response - could not create file");
         return false;
     }
 }
@@ -1752,6 +1766,8 @@ function processInboundPlayerListResponse(packet) {
         logEvent("Invalid player list response - missing required fields");
         return false;
     }
+    
+    logEvent("Processing player list response from " + packet.from.bbs);
     
     var players = loadInterBBSPlayers();
     var nodeAddress = packet.from.address || packet.from.bbs;
@@ -1782,7 +1798,7 @@ function processInboundPlayerListResponse(packet) {
     if (packet.to && packet.to.user) {
         var targetUser = packet.to.user;
         
-        // Try to find the user with case-insensitive matching if necessary
+        // Try to find the user with case-insensitive matching
         if (typeof findLocalUser === 'function') {
             var resolvedUser = findLocalUser(targetUser);
             if (resolvedUser && typeof resolvedUser === 'object' && resolvedUser.alias) {
@@ -1792,13 +1808,14 @@ function processInboundPlayerListResponse(packet) {
             }
         }
         
+        logEvent("Sending notification to " + targetUser + " about player list update");
+        
+        // Add source BBS to notification subject to distinguish multiple updates
         sendAchessNotification(targetUser, 
-            "Player List Updated", 
+            "Player List Updated from " + packet.from.bbs, 
             "Player list received from " + packet.from.bbs + "\r\n" +
             "Found " + packet.players.length + " players.\r\n\r\n" +
             "Return to InterBBS Challenge to see the updated list.");
-        
-        logEvent("Sent player list notification to " + targetUser);
     }
     
     return true;
