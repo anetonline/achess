@@ -303,3 +303,84 @@ Ansi Artwork By: Cozmo of Lunatics Unleashed BBS
 Telnet: lunaticsunleashed.ddns.net:2333
 
 The Lizard Master – Nite Eyes BBS -	bbs.lizardmaster.com
+
+
+* Update 8-14-25
+
+12. LEAGUE COORDINATOR (LC) FEATURES
+
+The AChess InterBBS system designates one BBS as the League Coordinator (LC), which has special administrative capabilities for managing the InterBBS Chess League. These features are only available to the designated LC.
+
+Setting Up the League Coordinator:
+- The LC is determined by the BBS address in your bbs.cfg
+- By default, Node1 in the chess_nodes.ini file is considered the LC
+- You can specify a custom LC address with this line in bbs.cfg:
+
+Running achess_ibbs.js menu  os still the Best option for running commands as an LC or NON-LC. The menu option can be placed in your operator menu in external programs.
+
+
+LC-Only Commands:
+- `achess_ibbs.js distribute` - Send the clean node list to all BBSes
+- `achess_ibbs.js reset` - Perform a league-wide reset (clears scores, games, etc.)
+- Master Node List Management (via interactive menu):
+- Create/Update master node list
+- Add new nodes to master list
+- Edit existing nodes in master list
+- Remove nodes from master list
+- Validate all nodes against master list
+- Distribute master node list
+
+Master JSON Node List:
+- File: lc_master_nodes.json
+- Purpose: Provides the definitive list of authorized nodes in the league
+- Only the LC can create and modify this file
+- Contains full details of all nodes including:
+- BBS name
+- Address
+- SysOp name
+- Location
+- Last seen timestamp
+- This file is used for:
+- Validating node registrations
+- Cleaning up duplicate/conflicting nodes
+- Authorizing new nodes to join the league
+- Resolving address conflicts
+
+Using the Master Node List Management Menu:
+1. As the LC, run: `achess_ibbs.js menu`
+2. Select option M for "Manage master node list"
+3. Choose from the following options:
+ 1. Create/Update master node list from current nodes
+ 2. Add new node to master list
+ 3. Edit existing node in master list
+ 4. Remove node from master list
+ 5. Validate all nodes against master list
+ 6. Distribute master node list to all nodes
+
+Node Management Workflow for League Coordinator:
+1. New BBS wants to join the league
+2. LC adds them to the master list using option 2
+3. LC distributes updated list using option 6
+4. All BBSes receive the node registry update
+5. New BBS can now participate in InterBBS chess games
+
+Benefits of the Master Node List:
+- Prevents unauthorized BBSes from joining the league
+- Ensures consistency across all participating BBSes
+- Simplifies management of network changes
+- Provides one authoritative source for node information
+- Helps resolve conflicts when BBSes have different node information
+
+Important Notes:
+- Only the LC should modify the master node list
+- After making changes, always distribute the updated list
+- Regular validation helps keep the network clean
+- The master JSON format allows for future expansion
+- LC status is verified for all administrative commands
+
+League-Wide Reset Feature:
+- Allows the LC to reset the entire league (scores, games, messages)
+- Requires double confirmation to prevent accidental resets
+- Each BBS will acknowledge the reset when processed
+- Can selectively reset different components (scores, games, etc.)
+- Automatically notifies all users of the reset
