@@ -141,7 +141,7 @@ function ensureGamesDir() {
     if (!file_exists(dir)) mkdir(dir);
 }
 
-// Player request function for InterBBS
+// Enhanced function to properly request player lists from any node
 function requestPlayerList(nodeAddress) {
     var nodes = readNodes();
     var targetNode = null;
@@ -166,11 +166,11 @@ function requestPlayerList(nodeAddress) {
     
     var requestPacket = {
         type: "player_list_request",
-        request_id: requestId,  // Add a unique request ID
+        request_id: requestId,
         from: {
             bbs: getLocalBBS("name"),
             address: getLocalBBS("address"),
-            user: user.alias  // Use actual user alias
+            user: user.alias
         },
         to: {
             bbs: targetNode.name,
