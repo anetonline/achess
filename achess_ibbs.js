@@ -5,6 +5,7 @@ load("sbbsdefs.js");
 // Configuration file location
 var CONFIG_FILE = js.exec_dir + "bbs.cfg";
 var ACHESS_DATA_DIR = js.exec_dir;
+var SCORES_SUMMARY = ACHESS_DATA_DIR + "scores_summary.json";
 
 // Default fallback configuration
 var DEFAULT_CONFIG = {
@@ -115,17 +116,17 @@ function requestPlayerListFromAllNodes() {
     var nodes = loadInterBBSNodes();
     var successCount = 0;
     
-    print("Requesting player lists from all known nodes...\r\n");
+    console.print("\r\nRequesting player lists from all known nodes...\r\n");
     
     for (var address in nodes) {
         // Skip requesting from ourselves
         if (address === getLocalBBS("address")) {
-            print("Skipping self (" + address + ")\r\n");
+            console.print("Skipping self (" + address + ")\r\n");
             continue;
         }
         
         var node = nodes[address];
-        print("Requesting from: " + node.name + " (" + address + ")\r\n");
+        console.print("Requesting from: " + node.name + " (" + address + ")\r\n");
         
         // Generate a unique request ID for each node
         var requestId = "req_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + "_" + Math.floor(Math.random() * 10000);
@@ -140,7 +141,7 @@ function requestPlayerListFromAllNodes() {
             },
             to: {
                 bbs: node.name,
-                address: node.address
+                address: address
             },
             created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
         };
@@ -154,15 +155,15 @@ function requestPlayerListFromAllNodes() {
             f.write(JSON.stringify(requestPacket, null, 2));
             f.close();
             successCount++;
-            print("  Request packet created: " + fname + "\r\n");
+            console.print("  Request packet created: " + fname + "\r\n");
             logEvent("Sent player list request to " + node.name + " (" + address + ")");
         } else {
-            print("  ERROR: Could not create request packet for " + node.name + "\r\n");
+            console.print("  ERROR: Could not create request packet for " + node.name + "\r\n");
             logEvent("ERROR: Failed to create player list request for " + node.name);
         }
     }
     
-    print("Sent " + successCount + " player list requests\r\n");
+    console.print("Sent " + successCount + " player list requests\r\n");
     return successCount;
 }
 
@@ -476,30 +477,48 @@ function debugPlayerLists() {
             print("WARNING: Node " + address + " has missing name or address\r\n");
         }
     }
+}
+
+function debugMessagePacket(filename) {
+    print("=== DEBUGGING MESSAGE PACKET ===\r\n");
+    print("File: " + filename + "\r\n");
     
-    // 5. Log file checks
-    print("\r\nChecking log file for player list operations...\r\n");
-    var logFile = new File(INTERBBS_LOG_FILE);
-    if (logFile.open("r")) {
-        var lines = logFile.readAll();
-        logFile.close();
-        
-        var playerListLines = lines.filter(function(line) {
-            return line.indexOf("player list") !== -1;
-        });
-        
-        print("Found " + playerListLines.length + " log entries related to player lists\r\n");
-        if (playerListLines.length > 0) {
-            print("Most recent entries:\r\n");
-            for (var i = Math.max(0, playerListLines.length - 5); i < playerListLines.length; i++) {
-                print("  " + playerListLines[i] + "\r\n");
-            }
-        }
-    } else {
-        print("Could not open log file\r\n");
+    var content = file_get_contents(filename);
+    if (!content) {
+        print("ERROR: Could not read file\r\n");
+        return;
     }
     
-    print("\r\n=== END DEBUG ===\r\n");
+    try {
+        var packet = JSON.parse(content);
+        print("Raw packet structure:\r\n");
+        print(JSON.stringify(packet, null, 2) + "\r\n");
+        
+        print("\r\nPacket analysis:\r\n");
+        print("- Type: " + (packet.type || "MISSING") + "\r\n");
+        print("- Has data field: " + (packet.data ? "YES" : "NO") + "\r\n");
+        
+        if (packet.data) {
+            print("- Data keys: " + Object.keys(packet.data).join(", ") + "\r\n");
+            print("\r\nField by field:\r\n");
+            
+            var expectedFields = ['from_bbs', 'from_user', 'to_bbs', 'to_user', 'message', 'subject'];
+            for (var i = 0; i < expectedFields.length; i++) {
+                var field = expectedFields[i];
+                var value = packet.data[field];
+                var status = value ? "PRESENT" : "MISSING";
+                print("  " + field + ": " + status);
+                if (value) {
+                    print(" ('" + value + "')");
+                }
+                print("\r\n");
+            }
+        }
+        
+    } catch (e) {
+        print("ERROR: Invalid JSON - " + e.toString() + "\r\n");
+        print("Raw content:\r\n" + content + "\r\n");
+    }
 }
 
 // Assign LC in node list
@@ -2832,45 +2851,38 @@ function processInboundMessage(packet) {
     var hasFromInfo = false;
     var hasMessageBody = false;
 
-    // Check for from information (multiple possible formats) 
+    // Check for from information
     if (
         messageData.from ||
         (messageData.from_user && (messageData.from_bbs || messageData.bbs)) ||
         (messageData.from_user && messageData.from_address) ||
         (messageData.from_user && messageData.address) ||
         (messageData.from_user && messageData.bbs && messageData.address)
-    ) { // NEW: handle root level bbs+address
+    ) {
         hasFromInfo = true;
     }
 
-    // Check for message body - UPDATED to be more lenient
+    // Check for message body
     if (
         (messageData.message && messageData.message.trim() !== "") ||
         (messageData.body && messageData.body.trim() !== "") ||
         (messageData.subject && messageData.subject.trim() !== "")
-    ) { // NEW: allow subject-only messages
+    ) {
         hasMessageBody = true;
     }
 
-    // SPECIAL CASE: If it's a valid packet structure but no meaningful content, treat as a "ping" message
+    // Allow empty "ping" messages
     if (!hasMessageBody && hasFromInfo && messageData.type === "message") {
         logEvent("Processing empty message packet as ping/status message");
-        hasMessageBody = true; // Allow empty messages through
+        hasMessageBody = true;
     }
 
     if (!hasFromInfo || !hasMessageBody) {
-        logEvent("ERROR: Invalid message packet - missing required fields (from info or message body)");
-        logEvent("Available fields: " + Object.keys(messageData).join(', '));
-
-        // Log the actual values for debugging
-        for (var key in messageData) {
-            logEvent("  " + key + " = '" + messageData[key] + "'");
-        }
-
+        logEvent("ERROR: Invalid message packet - missing required fields");
         return false;
     }
 
-    // Extract from information - handle both formats - UPDATED
+    // Extract from information
     var fromUser, fromBBS, fromAddr;
     if (messageData.from && typeof messageData.from === 'object') {
         fromUser = messageData.from.user || messageData.from_user;
@@ -2878,20 +2890,32 @@ function processInboundMessage(packet) {
         fromAddr = messageData.from.address || messageData.from_address || messageData.address;
     } else {
         fromUser = messageData.from_user;
-        fromBBS = messageData.from_bbs || messageData.bbs; // Now includes 'bbs' fallback
+        fromBBS = messageData.from_bbs || messageData.bbs;
         fromAddr = messageData.from_address || messageData.address;
     }
 
-    // Determine target user with case-insensitive matching - UPDATED FIX
+    // Determine target BBS first to see if this message is for us
+    var targetBBS = messageData.to_bbs || (messageData.to ? messageData.to.bbs : null);
+    var targetAddr = messageData.to_addr || (messageData.to ? messageData.to.address : null);
+    var localBBSName = getLocalBBS("name");
+    var localBBSAddr = getLocalBBS("address");
+
+    // Check if message is meant for this BBS - using OR condition, not AND
+    if ((targetBBS && !equalsIgnoreCase(targetBBS, localBBSName)) || 
+        (targetAddr && targetAddr !== localBBSAddr)) {
+        logEvent("Message not for this BBS, ignoring: " + 
+                 (targetBBS || "unknown") + "/" + (targetAddr || "unknown") + 
+                 " vs " + localBBSName + "/" + localBBSAddr);
+        return false;
+    }
+
+    // Now handle the target user with case-insensitive matching
     var targetUser = null;
     var targetAlias = messageData.to_user || (messageData.to ? messageData.to.user : null);
 
-    // Only default to ALL if explicitly set, not if blank
-    if (
-        typeof targetAlias === "string" &&
-        targetAlias.trim() !== "" &&
-        targetAlias.toUpperCase() !== "ALL"
-    ) {
+    if (typeof targetAlias === "string" && targetAlias.trim() !== "" && 
+        targetAlias.toUpperCase() !== "ALL") {
+        // Try to resolve to a specific user
         var resolvedUser = findLocalUser(targetAlias);
         if (resolvedUser && typeof resolvedUser === 'object' && resolvedUser.alias) {
             targetUser = resolvedUser.alias;
@@ -2903,20 +2927,25 @@ function processInboundMessage(packet) {
             targetUser = targetAlias;
             logEvent("Message targeted to: " + targetAlias + " (using original alias)");
         }
-    } else {
+    } else if (targetAlias && targetAlias.toUpperCase() === "ALL") {
         targetUser = "ALL";
-        logEvent("Message has no specific target user, sending to ALL");
+        logEvent("Message targeted to ALL users");
+    } else {
+        // Default to SYSOP when no target is specified
+        targetUser = "SYSOP";
+        logEvent("Message has no specific target user, sending to SYSOP");
     }
 
+    // Create and store the message
     var message = {
         from_user: fromUser,
         from_bbs: fromBBS,
         from_addr: fromAddr,
         to_user: targetUser,
-        to_bbs: getLocalBBS("name"),
-        to_addr: getLocalBBS("address"),
+        to_bbs: localBBSName,
+        to_addr: localBBSAddr,
         subject: messageData.subject || "InterBBS Message",
-        body: messageData.message || messageData.body || messageData.subject || "[Empty Message/Ping]", // UPDATED: fallback to subject or ping
+        body: messageData.message || messageData.body || messageData.subject || "[Empty Message/Ping]",
         created: messageData.created || strftime("%Y-%m-%d %H:%M:%S", time()),
         read: false
     };
@@ -2925,33 +2954,23 @@ function processInboundMessage(packet) {
     messages.push(message);
     writeMessages(messages);
 
-    // Send AChess notification about new message
-    var subject = "New InterBBS Message!";
-    var body =
+    // Send notification
+    verifyNotificationPath();
+    sendAchessNotification(targetUser, "New InterBBS Message!", 
         "You have received a new InterBBS message!\r\n\r\n" +
         "From: " + message.from_user + " @ " + message.from_bbs + "\r\n" +
         "Subject: " + message.subject + "\r\n\r\n" +
-        "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.";
-    
-    // ADDED: Verify notification path before sending
-    verifyNotificationPath();
-    sendAchessNotification(targetUser, subject, body);
+        "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.");
 
-    // Update player info - handle both packet formats
-    var playerInfo = {
+    // Update player info
+    updatePlayerInfo({
         user: fromUser,
         bbs: fromBBS,
         address: fromAddr
-    };
-    updatePlayerInfo(playerInfo);
+    });
 
-    logEvent(
-        "Received message from " +
-        message.from_user +
-        " @ " +
-        message.from_bbs +
-        " (target: " + targetUser + ")"
-    );
+    logEvent("Received message from " + message.from_user + " @ " + 
+             message.from_bbs + " (target: " + targetUser + ")");
     return true;
 }
 
@@ -3254,6 +3273,29 @@ function sendInterBBSMessage(targetUser, fromInfo, subject, messageBody) {
     }
 }
 
+function periodicMaintenance() {
+    // Request player lists from all nodes every week
+    var PLAYER_LIST_UPDATE_INTERVAL = 7 * 24 * 60 * 60; // 7 days in seconds
+    
+    var lastUpdateFile = new File(ACHESS_DATA_DIR + "last_player_update.txt");
+    var lastUpdate = 0;
+    
+    if (lastUpdateFile.exists && lastUpdateFile.open("r")) {
+        lastUpdate = parseInt(lastUpdateFile.readln(), 10) || 0;
+        lastUpdateFile.close();
+    }
+    
+    var now = time();
+    if ((now - lastUpdate) >= PLAYER_LIST_UPDATE_INTERVAL) {
+        requestPlayerListFromAllNodes();
+        
+        if (lastUpdateFile.open("w")) {
+            lastUpdateFile.writeln(now.toString());
+            lastUpdateFile.close();
+        }
+    }
+}
+
 function processInterBBSInboundPacket(filename) {
     try {
         logEvent("Processing: " + filename);
@@ -3382,6 +3424,17 @@ function processInterBBSInboundPacket(filename) {
     }
 }
 
+function debugNodeAddresses() {
+    var nodes = loadInterBBSNodes();
+    print("=== NODE ADDRESS DEBUG ===\n");
+    for (var address in nodes) {
+        var node = nodes[address];
+        print("Node: " + node.name + "\n");
+        print("  Address: '" + address + "'\n");
+        print("  Last seen: " + node.last_seen + "\n\n");
+    }
+}
+
 // Helper function for file operations if they don't exist
 function file_get_contents(filename) {
     var f = new File(filename);
@@ -3466,7 +3519,19 @@ function sendInterBBSPackets() {
     
     var nodes = loadInterBBSNodes();
     var scores = loadScores();
-    var localScores = scores[getLocalBBS("name") + " (" + getLocalBBS("address") + ")"] || {};
+    var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
+    var localScores = scores[ourBBS] || {};
+    
+    // Log what we're about to send
+    print("Local scores to be shared:\r\n");
+    var playerCount = 0;
+    for (var player in localScores) {
+        playerCount++;
+        print("  " + player + ": W:" + (localScores[player].wins || 0) + 
+              " L:" + (localScores[player].losses || 0) + 
+              " D:" + (localScores[player].draws || 0) + "\r\n");
+    }
+    print("Total: " + playerCount + " player records\r\n");
     
     var nodeCount = 0;
     for (var address in nodes) {
@@ -3478,8 +3543,47 @@ function sendInterBBSPackets() {
         return;
     }
     
+    // Also send node info to all nodes to ensure we're registered properly
+    for (var address in nodes) {
+        // Skip sending to ourselves
+        if (address === getLocalBBS("address")) {
+            print("Skipping self (" + address + ")\r\n");
+            continue;
+        }
+        
+        var node = nodes[address];
+        var nodeInfoPacket = {
+            type: "node_info",
+            from: {
+                bbs: getLocalBBS("name"),
+                address: getLocalBBS("address"),
+                sysop: getLocalBBS("sysop") || getLocalBBS("operator"),
+                location: getLocalBBS("location") || "",
+                user: "SYSTEM"
+            },
+            to: {
+                bbs: node.name,
+                address: node.address
+            },
+            created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
+        };
+        
+        var nodeFilename = "achess_nodeinfo_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
+        var nodePath = INTERBBS_OUT_DIR + nodeFilename;
+        
+        if (saveJSONFile(nodePath, nodeInfoPacket)) {
+            print("  Sent node info to " + node.name + " (" + address + ")\r\n");
+            logEvent("Sent node info to " + node.name);
+        }
+    }
+    
     var sent = 0;
     for (var address in nodes) {
+        // Skip sending to ourselves
+        if (address === getLocalBBS("address")) {
+            continue;
+        }
+        
         var node = nodes[address];
         
         var packet = {
@@ -3487,8 +3591,8 @@ function sendInterBBSPackets() {
             from: {
                 bbs: getLocalBBS("name"),
                 address: getLocalBBS("address"),
-                sysop: getLocalBBS("sysop"),
-                location: getLocalBBS("location")
+                sysop: getLocalBBS("sysop") || getLocalBBS("operator"),
+                location: getLocalBBS("location") || ""
             },
             to: {
                 bbs: node.name,
@@ -3498,7 +3602,7 @@ function sendInterBBSPackets() {
             created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
         };
         
-        var filename = "achess_scores_" + address.replace(/[^A-Za-z0-9]/g, "_") + ".json";
+        var filename = "achess_scores_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
         var filepath = INTERBBS_OUT_DIR + filename;
         
         if (saveJSONFile(filepath, packet)) {
@@ -3509,8 +3613,11 @@ function sendInterBBSPackets() {
         }
     }
     
-    print("Score packets sent: " + sent + "/" + nodeCount + "\r\n");
+    print("Score packets sent: " + sent + "/" + (nodeCount-1) + "\r\n");
     logEvent("Sent " + sent + " score packets");
+    
+    // Request player lists from all nodes while we're at it
+    requestPlayerListFromAllNodes();
 }
 
 // Send outbound challenge
@@ -3669,26 +3776,31 @@ function sendInterBBSMessage(targetBBS, targetUser, subject, body) {
         return false;
     }
     
-    // UPDATED: Create packet in root-level format that matches inbound expectations
+    // Ensure targetUser is explicitly set (never default to "ALL")
+    if (!targetUser || targetUser.trim() === "") {
+        print("ERROR: Target user must be specified for direct messages\r\n");
+        return false;
+    }
+    
     var packet = {
         type: "message",
-        bbs: getLocalBBS("name"),                    // Root level
-        address: getLocalBBS("address"),             // Root level  
+        bbs: getLocalBBS("name"),
+        address: getLocalBBS("address"),
         to_bbs: targetNode.name,
         to_addr: targetNode.address,
-        to_user: targetUser || "",
+        to_user: targetUser,
         from_user: user.alias || user.name || "LocalUser",
         subject: subject || "InterBBS Message",
         body: body || "",
-        created: strftime("%Y-%m-%d %H:%M:%S", time())  // Match X-Bit format
+        created: strftime("%Y-%m-%d %H:%M:%S", time())
     };
     
     var filename = "achess_message_" + targetNode.address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
     var filepath = INTERBBS_OUT_DIR + filename;
     
     if (saveJSONFile(filepath, packet)) {
-        print("Message sent to " + (targetUser || "ALL") + " @ " + targetBBS + "\r\n");
-        logEvent("Sent message to " + (targetUser || "ALL") + " @ " + targetBBS);
+        print("Message sent to " + targetUser + " @ " + targetBBS + "\r\n");
+        logEvent("Sent message to " + targetUser + " @ " + targetBBS);
         return true;
     } else {
         print("ERROR: Could not send message\r\n");
