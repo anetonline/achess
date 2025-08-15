@@ -26,63 +26,139 @@ var DEFAULT_CONFIG = {
     }
 };
 
+function checkFilePermissions() {
+    var testFile = js.exec_dir + "file_test.tmp";
+    try {
+        // Try to write a test file
+        var f = new File(testFile);
+        if (f.open("w+")) {
+            f.write("Test " + new Date());
+            f.close();
+            
+            // Try to read it back
+            if (f.open("r")) {
+                f.close();
+                
+                // Remove test file
+                f.remove();
+                return true;
+            } else {
+                logEvent("WARNING: Could not read test file - check permissions");
+                return false;
+            }
+        } else {
+            logEvent("WARNING: Could not write test file - check permissions");
+            return false;
+        }
+    } catch(e) {
+        logEvent("CRITICAL: File system error: " + e.toString());
+        return false;
+    }
+}
+
+checkFilePermissions();
+
 function safeAddScore(username, result, vs) {
     try {
-        // Create backup of existing function
-        var originalAddScore = typeof addScore === 'function' ? addScore : null;
+        // Use the local file path variables that are already defined in the file
+        var SCORES_FILE = js.exec_dir + "scores.json";
+        var SCORES_SUMMARY = js.exec_dir + "scores_summary.json";
         
-        if (originalAddScore) {
-            // Use the original function if available
-            originalAddScore(username, result, vs);
-        } else {
-            // Minimal implementation if the original isn't available
-            logEvent("Adding score: " + username + " " + result + " vs " + vs);
-            
-            var scores = [];
-            try {
-                if (file_exists(SCORES_FILE)) {
-                    var f = new File(SCORES_FILE);
-                    if (f.open("r")) {
-                        scores = JSON.parse(f.readAll().join(""));
-                        f.close();
-                    }
-                }
-            } catch(e) {
-                logEvent("Error reading scores file: " + e.toString());
-            }
-            
-            if (!Array.isArray(scores)) scores = [];
-            
-            var now = strftime("%Y-%m-%d %H:%M", time());
-            scores.push({
-                user: username,
-                result: result,
-                vs: vs,
-                date: now
-            });
-            
-            // Trim to latest 30 entries
-            while (scores.length > 30) scores.shift();
-            
-            try {
+        // Read scores with proper error handling
+        var scores = [];
+        try {
+            if (file_exists(SCORES_FILE)) {
                 var f = new File(SCORES_FILE);
-                if (f.open("w+")) {
-                    f.write(JSON.stringify(scores, null, 2));
+                if (f.open("r")) {
+                    var content = f.readAll().join("");
+                    if (content && content.trim() !== "") {
+                        scores = JSON.parse(content);
+                    }
                     f.close();
                 }
-            } catch(e) {
-                logEvent("ERROR writing scores: " + e.toString());
+            }
+        } catch(e) {
+            logEvent("Error reading scores file: " + e.toString());
+        }
+        
+        // Ensure scores is an array
+        if (!Array.isArray(scores)) scores = [];
+        
+        var now = strftime("%Y-%m-%d %H:%M", time());
+        scores.push({
+            user: username,
+            result: result,
+            vs: vs,
+            date: now
+        });
+        
+        // Trim to latest 30 entries
+        while (scores.length > 30) scores.shift();
+        
+        // Write scores with proper error handling
+        try {
+            var f = new File(SCORES_FILE);
+            if (f.open("w+")) {
+                f.write(JSON.stringify(scores, null, 2));
+                f.close();
+            }
+        } catch(e) {
+            logEvent("Error writing scores: " + e.toString());
+        }
+        
+        // Update summary scores
+        try {
+            var summary = {};
+            var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
+            summary[ourBBS] = {};
+            
+            for (var i = 0; i < scores.length; i++) {
+                var s = scores[i];
+                var name = s.user;
+                if (!summary[ourBBS][name]) summary[ourBBS][name] = {wins:0, losses:0, draws:0, rating:1200};
+                if (typeof s.result === "string") {
+                    if (s.result.match(/win/i)) summary[ourBBS][name].wins++;
+                    else if (s.result.match(/loss/i)) summary[ourBBS][name].losses++;
+                    else if (s.result.match(/draw/i)) summary[ourBBS][name].draws++;
+                }
             }
             
-            // Update summary scores if possible
-            try {
-                updateSummaryScoresFromRecent(scores);
-            } catch(e) {
-                logEvent("ERROR updating summary scores: " + e.toString());
+            // Calculate ratings
+            for (var player in summary[ourBBS]) {
+                var stats = summary[ourBBS][player];
+                stats.rating = 1200 + (stats.wins * 25) - (stats.losses * 15);
             }
+            
+            // Write summary
+            var f = new File(SCORES_SUMMARY);
+            if (f.open("w+")) {
+                f.write(JSON.stringify(summary, null, 2));
+                f.close();
+            }
+        } catch(e) {
+            logEvent("Error updating summary scores: " + e.toString());
+        }
+        
+        // Update score files if the function exists
+        try {
+            if (typeof updateScoreFiles === 'function') {
+                updateScoreFiles();
+            }
+        } catch(e) {
+            logEvent("Error updating score files: " + e.toString());
         }
     } catch(e) {
         logEvent("ERROR in safeAddScore: " + e.toString());
+        // Try to save at least basic info
+        try {
+            var f = new File(js.exec_dir + "score_errors.log");
+            if (f.open("a")) {
+                f.writeln(strftime("%Y-%m-%d %H:%M:%S", time()) + " - " + username + " " + result + " vs " + vs);
+                f.close();
+            }
+        } catch(e2) {
+            // Nothing more we can do
+        }
     }
 }
 
