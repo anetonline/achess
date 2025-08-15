@@ -26,6 +26,66 @@ var DEFAULT_CONFIG = {
     }
 };
 
+function safeAddScore(username, result, vs) {
+    try {
+        // Create backup of existing function
+        var originalAddScore = typeof addScore === 'function' ? addScore : null;
+        
+        if (originalAddScore) {
+            // Use the original function if available
+            originalAddScore(username, result, vs);
+        } else {
+            // Minimal implementation if the original isn't available
+            logEvent("Adding score: " + username + " " + result + " vs " + vs);
+            
+            var scores = [];
+            try {
+                if (file_exists(SCORES_FILE)) {
+                    var f = new File(SCORES_FILE);
+                    if (f.open("r")) {
+                        scores = JSON.parse(f.readAll().join(""));
+                        f.close();
+                    }
+                }
+            } catch(e) {
+                logEvent("Error reading scores file: " + e.toString());
+            }
+            
+            if (!Array.isArray(scores)) scores = [];
+            
+            var now = strftime("%Y-%m-%d %H:%M", time());
+            scores.push({
+                user: username,
+                result: result,
+                vs: vs,
+                date: now
+            });
+            
+            // Trim to latest 30 entries
+            while (scores.length > 30) scores.shift();
+            
+            try {
+                var f = new File(SCORES_FILE);
+                if (f.open("w+")) {
+                    f.write(JSON.stringify(scores, null, 2));
+                    f.close();
+                }
+            } catch(e) {
+                logEvent("ERROR writing scores: " + e.toString());
+            }
+            
+            // Update summary scores if possible
+            try {
+                updateSummaryScoresFromRecent(scores);
+            } catch(e) {
+                logEvent("ERROR updating summary scores: " + e.toString());
+            }
+        }
+    } catch(e) {
+        logEvent("ERROR in safeAddScore: " + e.toString());
+    }
+}
+
 function processInterBBSResponse(packet) {
     // This function handles generic response packets
     if (!packet.from) {
