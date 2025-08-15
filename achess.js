@@ -993,13 +993,21 @@ function playVsComputer(loadFromSave, saveObj) {
                 }
                 
                 // Record the score
-                safeAddScore(user.alias, result, "Computer (" + difficulty + ")");
+                try {
+                    safeAddScore(user.alias, result, "Computer (" + difficulty + ")");
+                } catch(e) {
+                    logEvent("Error in score update: " + e.toString());
+                }
             } else {
                 gameResult = "\x01h\x01y*** DRAW! ***\x01n";
                 victoryMessage = "\x01h\x01yThe game ended in a draw.\x01n";
                 
                 // Record draw
-                safeAddScore(user.alias, "Draw", "Computer (" + difficulty + ")");
+                try {
+                    safeAddScore(user.alias, "Draw", "Computer (" + difficulty + ")");
+                } catch(e) {
+                    logEvent("Error in score update: " + e.toString());
+                }
             }
             
             // Center the game result message
