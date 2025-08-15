@@ -59,6 +59,131 @@ function checkFilePermissions() {
 checkFilePermissions();
 
 function safeAddScore(username, result, vs) {
+    try {
+        // Use the local file path variables that are already defined in the file
+        var SCORES_FILE = js.exec_dir + "scores.json";
+        var SCORES_SUMMARY = js.exec_dir + "scores_summary.json";
+        
+        // Read scores with proper error handling
+        var scores = [];
+        try {
+            if (file_exists(SCORES_FILE)) {
+                var f = new File(SCORES_FILE);
+                if (f.open("r")) {
+                    var content = f.readAll().join("");
+                    if (content && content.trim() !== "") {
+                        try {
+                            scores = JSON.parse(content);
+                        } catch(e) {
+                            logEvent("Error parsing scores JSON: " + e.toString());
+                            scores = [];
+                        }
+                    }
+                    f.close();
+                }
+            }
+        } catch(e) {
+            logEvent("Error reading scores file: " + e.toString());
+        }
+        
+        // Ensure scores is an array
+        if (!Array.isArray(scores)) scores = [];
+        
+        var now = "";
+        try {
+            now = strftime("%Y-%m-%d %H:%M", time());
+        } catch(e) {
+            now = new Date().toISOString();
+        }
+        
+        scores.push({
+            user: username || "Unknown",
+            result: result || "Unknown",
+            vs: vs || "Unknown",
+            date: now
+        });
+        
+        // Trim to latest 30 entries
+        while (scores.length > 30) scores.shift();
+        
+        // Write scores with proper error handling
+        try {
+            var f = new File(SCORES_FILE);
+            if (f.open("w+")) {
+                f.write(JSON.stringify(scores, null, 2));
+                f.close();
+            }
+        } catch(e) {
+            logEvent("Error writing scores: " + e.toString());
+        }
+        
+        // Update summary scores
+        try {
+            var summary = {};
+            var ourBBS = "";
+            try {
+                ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
+            } catch(e) {
+                ourBBS = "Local BBS";
+            }
+            
+            summary[ourBBS] = {};
+            
+            for (var i = 0; i < scores.length; i++) {
+                var s = scores[i];
+                var name = s.user;
+                if (!summary[ourBBS][name]) summary[ourBBS][name] = {wins:0, losses:0, draws:0, rating:1200};
+                if (typeof s.result === "string") {
+                    if (s.result.match(/win/i)) summary[ourBBS][name].wins++;
+                    else if (s.result.match(/loss/i)) summary[ourBBS][name].losses++;
+                    else if (s.result.match(/draw/i)) summary[ourBBS][name].draws++;
+                }
+            }
+            
+            // Calculate ratings
+            for (var player in summary[ourBBS]) {
+                var stats = summary[ourBBS][player];
+                stats.rating = 1200 + (stats.wins * 25) - (stats.losses * 15);
+            }
+            
+            // Write summary
+            try {
+                var f = new File(SCORES_SUMMARY);
+                if (f.open("w+")) {
+                    f.write(JSON.stringify(summary, null, 2));
+                    f.close();
+                }
+            } catch(e) {
+                logEvent("Error writing summary file: " + e.toString());
+            }
+        } catch(e) {
+            logEvent("Error updating summary scores: " + e.toString());
+        }
+        
+        // Try to call updateScoreFiles if it exists in global scope
+        try {
+            if (typeof updateScoreFiles === 'function') {
+                updateScoreFiles();
+            }
+        } catch(e) {
+            logEvent("Error calling updateScoreFiles: " + e.toString());
+        }
+        
+    } catch(e) {
+        logEvent("CRITICAL ERROR in safeAddScore: " + e.toString());
+        // Try to save at least basic info
+        try {
+            var errorLog = js.exec_dir + "score_errors.log";
+            var f = new File(errorLog);
+            if (f.open("a")) {
+                f.writeln(new Date().toString() + " - " + username + " " + result + " vs " + vs);
+                f.close();
+            }
+        } catch(e2) {
+            // Nothing more we can do
+        }
+    }
+}
 
 function processInterBBSResponse(packet) {
     // This function handles generic response packets
