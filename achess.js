@@ -993,13 +993,13 @@ function playVsComputer(loadFromSave, saveObj) {
                 }
                 
                 // Record the score
-                safeAddScore()(user.alias, result, "Computer (" + difficulty + ")");
+                safeAddScore(user.alias, result, "Computer (" + difficulty + ")");
             } else {
                 gameResult = "\x01h\x01y*** DRAW! ***\x01n";
                 victoryMessage = "\x01h\x01yThe game ended in a draw.\x01n";
                 
                 // Record draw
-                safeAddScore()(user.alias, "Draw", "Computer (" + difficulty + ")");
+                safeAddScore(user.alias, "Draw", "Computer (" + difficulty + ")");
             }
             
             // Center the game result message
@@ -2544,7 +2544,7 @@ function writeScores(scores) {
         f.close();
     }
 }
-function safeAddScore()(username, result, vs) {
+function safeAddScore(username, result, vs) {
     var scores = readScores();
     if (!Array.isArray(scores)) scores = [];
     var now = strftime("%Y-%m-%d %H:%M", time());
@@ -3323,8 +3323,8 @@ function playVsPlayer(resume, saveObj) {
                     victoryMessage = "\x01h\x01rYou have been defeated by " + winnerName + ".\x01n";
                 }
                 
-                safeAddScore()(winnerName, "Win", loserName);
-                safeAddScore()(loserName, "Loss", winnerName);
+                safeAddScore(winnerName, "Win", loserName);
+                safeAddScore(loserName, "Loss", winnerName);
             } else if (
                 (game.board.in_draw && game.board.in_draw()) ||
                 (game.board.in_stalemate && game.board.in_stalemate())
@@ -3332,8 +3332,8 @@ function playVsPlayer(resume, saveObj) {
                 gameResult = "\x01h\x01y*** DRAW! ***\x01n";
                 victoryMessage = "\x01h\x01yThe game ended in a draw between you and your opponent.\x01n";
                 
-                safeAddScore()(game.white, "Draw", game.black);
-                safeAddScore()(game.black, "Draw", game.white);
+                safeAddScore(game.white, "Draw", game.black);
+                safeAddScore(game.black, "Draw", game.white);
             }
             
             var padLen = Math.floor((40 - gameResult.replace(/\x01./g, "").length) / 2);
