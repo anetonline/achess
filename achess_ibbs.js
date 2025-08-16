@@ -5,7 +5,6 @@ load("sbbsdefs.js");
 // Configuration file location
 var CONFIG_FILE = js.exec_dir + "bbs.cfg";
 var ACHESS_DATA_DIR = js.exec_dir;
-var SCORES_SUMMARY = ACHESS_DATA_DIR + "scores_summary.json";
 
 // Default fallback configuration
 var DEFAULT_CONFIG = {
@@ -26,163 +25,36 @@ var DEFAULT_CONFIG = {
     }
 };
 
-function checkFilePermissions() {
-    var testFile = js.exec_dir + "file_test.tmp";
-    try {
-        // Try to write a test file
-        var f = new File(testFile);
-        if (f.open("w+")) {
-            f.write("Test " + new Date());
-            f.close();
-            
-            // Try to read it back
-            if (f.open("r")) {
-                f.close();
-                
-                // Remove test file
-                f.remove();
-                return true;
-            } else {
-                logEvent("WARNING: Could not read test file - check permissions");
-                return false;
-            }
-        } else {
-            logEvent("WARNING: Could not write test file - check permissions");
-            return false;
+// Auto-register current user in players database on game entry
+function autoRegisterCurrentPlayer() {
+    var players = loadInterBBSPlayers();
+    var localAddr = getLocalBBS("address");
+    
+    if (!players[localAddr]) players[localAddr] = [];
+    
+    // Check if player already exists
+    var found = false;
+    for (var i = 0; i < players[localAddr].length; i++) {
+        if (isUserMatch(players[localAddr][i].username, user.alias)) {
+            players[localAddr][i].lastSeen = strftime("%Y-%m-%d", time());
+            found = true;
+            break;
         }
-    } catch(e) {
-        logEvent("CRITICAL: File system error: " + e.toString());
-        return false;
     }
-}
-
-checkFilePermissions();
-
-function safeAddScore(username, result, vs) {
-    try {
-        // Use the local file path variables that are already defined in the file
-        var SCORES_FILE = js.exec_dir + "scores.json";
-        var SCORES_SUMMARY = js.exec_dir + "scores_summary.json";
-        
-        // Read scores with proper error handling
-        var scores = [];
-        try {
-            if (file_exists(SCORES_FILE)) {
-                var f = new File(SCORES_FILE);
-                if (f.open("r")) {
-                    var content = f.readAll().join("");
-                    if (content && content.trim() !== "") {
-                        try {
-                            scores = JSON.parse(content);
-                        } catch(e) {
-                            logEvent("Error parsing scores JSON: " + e.toString());
-                            scores = [];
-                        }
-                    }
-                    f.close();
-                }
-            }
-        } catch(e) {
-            logEvent("Error reading scores file: " + e.toString());
-        }
-        
-        // Ensure scores is an array
-        if (!Array.isArray(scores)) scores = [];
-        
-        var now = "";
-        try {
-            now = strftime("%Y-%m-%d %H:%M", time());
-        } catch(e) {
-            now = new Date().toISOString();
-        }
-        
-        scores.push({
-            user: username || "Unknown",
-            result: result || "Unknown",
-            vs: vs || "Unknown",
-            date: now
+    
+    if (!found) {
+        players[localAddr].push({
+            username: user.alias,
+            lastSeen: strftime("%Y-%m-%d", time()),
+            gamesPlayed: 0,
+            wins: 0,
+            losses: 0,
+            draws: 0
         });
-        
-        // Trim to latest 30 entries
-        while (scores.length > 30) scores.shift();
-        
-        // Write scores with proper error handling
-        try {
-            var f = new File(SCORES_FILE);
-            if (f.open("w+")) {
-                f.write(JSON.stringify(scores, null, 2));
-                f.close();
-            }
-        } catch(e) {
-            logEvent("Error writing scores: " + e.toString());
-        }
-        
-        // Update summary scores
-        try {
-            var summary = {};
-            var ourBBS = "";
-            try {
-                ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
-            } catch(e) {
-                ourBBS = "Local BBS";
-            }
-            
-            summary[ourBBS] = {};
-            
-            for (var i = 0; i < scores.length; i++) {
-                var s = scores[i];
-                var name = s.user;
-                if (!summary[ourBBS][name]) summary[ourBBS][name] = {wins:0, losses:0, draws:0, rating:1200};
-                if (typeof s.result === "string") {
-                    if (s.result.match(/win/i)) summary[ourBBS][name].wins++;
-                    else if (s.result.match(/loss/i)) summary[ourBBS][name].losses++;
-                    else if (s.result.match(/draw/i)) summary[ourBBS][name].draws++;
-                }
-            }
-            
-            // Calculate ratings
-            for (var player in summary[ourBBS]) {
-                var stats = summary[ourBBS][player];
-                stats.rating = 1200 + (stats.wins * 25) - (stats.losses * 15);
-            }
-            
-            // Write summary
-            try {
-                var f = new File(SCORES_SUMMARY);
-                if (f.open("w+")) {
-                    f.write(JSON.stringify(summary, null, 2));
-                    f.close();
-                }
-            } catch(e) {
-                logEvent("Error writing summary file: " + e.toString());
-            }
-        } catch(e) {
-            logEvent("Error updating summary scores: " + e.toString());
-        }
-        
-        // Try to call updateScoreFiles if it exists in global scope
-        try {
-            if (typeof updateScoreFiles === 'function') {
-                updateScoreFiles();
-            }
-        } catch(e) {
-            logEvent("Error calling updateScoreFiles: " + e.toString());
-        }
-        
-    } catch(e) {
-        logEvent("CRITICAL ERROR in safeAddScore: " + e.toString());
-        // Try to save at least basic info
-        try {
-            var errorLog = js.exec_dir + "score_errors.log";
-            var f = new File(errorLog);
-            if (f.open("a")) {
-                f.writeln(new Date().toString() + " - " + username + " " + result + " vs " + vs);
-                f.close();
-            }
-        } catch(e2) {
-            // Nothing more we can do
-        }
+        logEvent("Auto-registered player: " + user.alias);
     }
+    
+    saveInterBBSPlayers(players);
 }
 
 function processInterBBSResponse(packet) {
@@ -275,17 +147,17 @@ function requestPlayerListFromAllNodes() {
     var nodes = loadInterBBSNodes();
     var successCount = 0;
     
-    console.print("\r\nRequesting player lists from all known nodes...\r\n");
+    print("Requesting player lists from all known nodes...\r\n");
     
     for (var address in nodes) {
         // Skip requesting from ourselves
         if (address === getLocalBBS("address")) {
-            console.print("Skipping self (" + address + ")\r\n");
+            print("Skipping self (" + address + ")\r\n");
             continue;
         }
         
         var node = nodes[address];
-        console.print("Requesting from: " + node.name + " (" + address + ")\r\n");
+        print("Requesting from: " + node.name + " (" + address + ")\r\n");
         
         // Generate a unique request ID for each node
         var requestId = "req_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + "_" + Math.floor(Math.random() * 10000);
@@ -300,7 +172,7 @@ function requestPlayerListFromAllNodes() {
             },
             to: {
                 bbs: node.name,
-                address: address
+                address: node.address
             },
             created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
         };
@@ -314,15 +186,15 @@ function requestPlayerListFromAllNodes() {
             f.write(JSON.stringify(requestPacket, null, 2));
             f.close();
             successCount++;
-            console.print("  Request packet created: " + fname + "\r\n");
+            print("  Request packet created: " + fname + "\r\n");
             logEvent("Sent player list request to " + node.name + " (" + address + ")");
         } else {
-            console.print("  ERROR: Could not create request packet for " + node.name + "\r\n");
+            print("  ERROR: Could not create request packet for " + node.name + "\r\n");
             logEvent("ERROR: Failed to create player list request for " + node.name);
         }
     }
     
-    console.print("Sent " + successCount + " player list requests\r\n");
+    print("Sent " + successCount + " player list requests\r\n");
     return successCount;
 }
 
@@ -636,48 +508,30 @@ function debugPlayerLists() {
             print("WARNING: Node " + address + " has missing name or address\r\n");
         }
     }
-}
-
-function debugMessagePacket(filename) {
-    print("=== DEBUGGING MESSAGE PACKET ===\r\n");
-    print("File: " + filename + "\r\n");
     
-    var content = file_get_contents(filename);
-    if (!content) {
-        print("ERROR: Could not read file\r\n");
-        return;
-    }
-    
-    try {
-        var packet = JSON.parse(content);
-        print("Raw packet structure:\r\n");
-        print(JSON.stringify(packet, null, 2) + "\r\n");
+    // 5. Log file checks
+    print("\r\nChecking log file for player list operations...\r\n");
+    var logFile = new File(INTERBBS_LOG_FILE);
+    if (logFile.open("r")) {
+        var lines = logFile.readAll();
+        logFile.close();
         
-        print("\r\nPacket analysis:\r\n");
-        print("- Type: " + (packet.type || "MISSING") + "\r\n");
-        print("- Has data field: " + (packet.data ? "YES" : "NO") + "\r\n");
+        var playerListLines = lines.filter(function(line) {
+            return line.indexOf("player list") !== -1;
+        });
         
-        if (packet.data) {
-            print("- Data keys: " + Object.keys(packet.data).join(", ") + "\r\n");
-            print("\r\nField by field:\r\n");
-            
-            var expectedFields = ['from_bbs', 'from_user', 'to_bbs', 'to_user', 'message', 'subject'];
-            for (var i = 0; i < expectedFields.length; i++) {
-                var field = expectedFields[i];
-                var value = packet.data[field];
-                var status = value ? "PRESENT" : "MISSING";
-                print("  " + field + ": " + status);
-                if (value) {
-                    print(" ('" + value + "')");
-                }
-                print("\r\n");
+        print("Found " + playerListLines.length + " log entries related to player lists\r\n");
+        if (playerListLines.length > 0) {
+            print("Most recent entries:\r\n");
+            for (var i = Math.max(0, playerListLines.length - 5); i < playerListLines.length; i++) {
+                print("  " + playerListLines[i] + "\r\n");
             }
         }
-        
-    } catch (e) {
-        print("ERROR: Invalid JSON - " + e.toString() + "\r\n");
-        print("Raw content:\r\n" + content + "\r\n");
+    } else {
+        print("Could not open log file\r\n");
     }
+    
+    print("\r\n=== END DEBUG ===\r\n");
 }
 
 // Assign LC in node list
@@ -1762,12 +1616,26 @@ function runInterBBSScoreUpdate() {
     var ibbsScript = js.exec_dir + "achess_ibbs.js";
     if (file_exists(ibbsScript)) {
         try {
-            system.exec(ibbsScript + " outbound", true);
+            // Check if running on Windows
+            var isWindows = (system.platform && system.platform.toLowerCase().indexOf("win") === 0);
+            
+            if (isWindows) {
+
+                var scriptPath = ibbsScript.replace(/\//g, "\\");
+                system.exec("\"" + scriptPath + "\" outbound", true);
+            } else {
+
+                system.exec(ibbsScript + " outbound", true);
+            }
             logEvent("Triggered InterBBS score update");
         } catch(e) {
+            // Log error but don't let it crash the game
             logEvent("Error triggering InterBBS score update: " + e.toString());
+
+            return false;
         }
     }
+    return true;
 }
 
 function logEvent(message) {
@@ -3010,38 +2878,45 @@ function processInboundMessage(packet) {
     var hasFromInfo = false;
     var hasMessageBody = false;
 
-    // Check for from information
+    // Check for from information (multiple possible formats) 
     if (
         messageData.from ||
         (messageData.from_user && (messageData.from_bbs || messageData.bbs)) ||
         (messageData.from_user && messageData.from_address) ||
         (messageData.from_user && messageData.address) ||
         (messageData.from_user && messageData.bbs && messageData.address)
-    ) {
+    ) { // NEW: handle root level bbs+address
         hasFromInfo = true;
     }
 
-    // Check for message body
+    // Check for message body - UPDATED to be more lenient
     if (
         (messageData.message && messageData.message.trim() !== "") ||
         (messageData.body && messageData.body.trim() !== "") ||
         (messageData.subject && messageData.subject.trim() !== "")
-    ) {
+    ) { // NEW: allow subject-only messages
         hasMessageBody = true;
     }
 
-    // Allow empty "ping" messages
+    // SPECIAL CASE: If it's a valid packet structure but no meaningful content, treat as a "ping" message
     if (!hasMessageBody && hasFromInfo && messageData.type === "message") {
         logEvent("Processing empty message packet as ping/status message");
-        hasMessageBody = true;
+        hasMessageBody = true; // Allow empty messages through
     }
 
     if (!hasFromInfo || !hasMessageBody) {
-        logEvent("ERROR: Invalid message packet - missing required fields");
+        logEvent("ERROR: Invalid message packet - missing required fields (from info or message body)");
+        logEvent("Available fields: " + Object.keys(messageData).join(', '));
+
+        // Log the actual values for debugging
+        for (var key in messageData) {
+            logEvent("  " + key + " = '" + messageData[key] + "'");
+        }
+
         return false;
     }
 
-    // Extract from information
+    // Extract from information - handle both formats - UPDATED
     var fromUser, fromBBS, fromAddr;
     if (messageData.from && typeof messageData.from === 'object') {
         fromUser = messageData.from.user || messageData.from_user;
@@ -3049,32 +2924,33 @@ function processInboundMessage(packet) {
         fromAddr = messageData.from.address || messageData.from_address || messageData.address;
     } else {
         fromUser = messageData.from_user;
-        fromBBS = messageData.from_bbs || messageData.bbs;
+        fromBBS = messageData.from_bbs || messageData.bbs; // Now includes 'bbs' fallback
         fromAddr = messageData.from_address || messageData.address;
     }
-
-    // Determine target BBS first to see if this message is for us
-    var targetBBS = messageData.to_bbs || (messageData.to ? messageData.to.bbs : null);
-    var targetAddr = messageData.to_addr || (messageData.to ? messageData.to.address : null);
-    var localBBSName = getLocalBBS("name");
-    var localBBSAddr = getLocalBBS("address");
-
-    // Check if message is meant for this BBS - using OR condition, not AND
-    if ((targetBBS && !equalsIgnoreCase(targetBBS, localBBSName)) || 
-        (targetAddr && targetAddr !== localBBSAddr)) {
-        logEvent("Message not for this BBS, ignoring: " + 
-                 (targetBBS || "unknown") + "/" + (targetAddr || "unknown") + 
-                 " vs " + localBBSName + "/" + localBBSAddr);
-        return false;
-    }
-
-    // Now handle the target user with case-insensitive matching
+    
+    // Extract target info
     var targetUser = null;
     var targetAlias = messageData.to_user || (messageData.to ? messageData.to.user : null);
+    var targetBBS = messageData.to_bbs || (messageData.to ? messageData.to.bbs : null);
+    
+    // CRITICAL: Check if message is intended for THIS BBS specifically
+    var myBBSName = getLocalBBS("name");
+    var myBBSAddr = getLocalBBS("address");
+    
+    // If message has specific target BBS and it's NOT us, don't process locally
+    if (targetBBS && 
+        !equalsIgnoreCase(targetBBS, myBBSName) && 
+        targetBBS !== myBBSAddr) {
+        logEvent("Message not for this BBS - intended for: " + targetBBS);
+        return true; // Return true so we don't reprocess the packet, but don't add to local messages
+    }
 
-    if (typeof targetAlias === "string" && targetAlias.trim() !== "" && 
-        targetAlias.toUpperCase() !== "ALL") {
-        // Try to resolve to a specific user
+    // Only default to ALL if explicitly set, not if blank
+    if (
+        typeof targetAlias === "string" &&
+        targetAlias.trim() !== "" &&
+        targetAlias.toUpperCase() !== "ALL"
+    ) {
         var resolvedUser = findLocalUser(targetAlias);
         if (resolvedUser && typeof resolvedUser === 'object' && resolvedUser.alias) {
             targetUser = resolvedUser.alias;
@@ -3086,25 +2962,20 @@ function processInboundMessage(packet) {
             targetUser = targetAlias;
             logEvent("Message targeted to: " + targetAlias + " (using original alias)");
         }
-    } else if (targetAlias && targetAlias.toUpperCase() === "ALL") {
-        targetUser = "ALL";
-        logEvent("Message targeted to ALL users");
     } else {
-        // Default to SYSOP when no target is specified
-        targetUser = "SYSOP";
-        logEvent("Message has no specific target user, sending to SYSOP");
+        targetUser = "ALL";
+        logEvent("Message has no specific target user, sending to ALL");
     }
 
-    // Create and store the message
     var message = {
         from_user: fromUser,
         from_bbs: fromBBS,
         from_addr: fromAddr,
         to_user: targetUser,
-        to_bbs: localBBSName,
-        to_addr: localBBSAddr,
+        to_bbs: getLocalBBS("name"),
+        to_addr: getLocalBBS("address"),
         subject: messageData.subject || "InterBBS Message",
-        body: messageData.message || messageData.body || messageData.subject || "[Empty Message/Ping]",
+        body: messageData.message || messageData.body || messageData.subject || "[Empty Message/Ping]", // UPDATED: fallback to subject or ping
         created: messageData.created || strftime("%Y-%m-%d %H:%M:%S", time()),
         read: false
     };
@@ -3113,23 +2984,33 @@ function processInboundMessage(packet) {
     messages.push(message);
     writeMessages(messages);
 
-    // Send notification
-    verifyNotificationPath();
-    sendAchessNotification(targetUser, "New InterBBS Message!", 
+    // Send AChess notification about new message
+    var subject = "New InterBBS Message!";
+    var body =
         "You have received a new InterBBS message!\r\n\r\n" +
         "From: " + message.from_user + " @ " + message.from_bbs + "\r\n" +
         "Subject: " + message.subject + "\r\n\r\n" +
-        "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.");
+        "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.";
+    
+    // ADDED: Verify notification path before sending
+    verifyNotificationPath();
+    sendAchessNotification(targetUser, subject, body);
 
-    // Update player info
-    updatePlayerInfo({
+    // Update player info - handle both packet formats
+    var playerInfo = {
         user: fromUser,
         bbs: fromBBS,
         address: fromAddr
-    });
+    };
+    updatePlayerInfo(playerInfo);
 
-    logEvent("Received message from " + message.from_user + " @ " + 
-             message.from_bbs + " (target: " + targetUser + ")");
+    logEvent(
+        "Received message from " +
+        message.from_user +
+        " @ " +
+        message.from_bbs +
+        " (target: " + targetUser + ")"
+    );
     return true;
 }
 
@@ -3162,38 +3043,21 @@ function processInboundScoreUpdate(packet) {
                 }
             }
             
-            // Use existing case or new case
+            // CRITICAL CHANGE: Add to existing scores rather than overwrite
             var finalUsername = existingUser || username;
-            scores[bbs_key][finalUsername] = {
-                wins: score.wins || 0,
-                losses: score.losses || 0,
-                draws: score.draws || 0,
-                rating: score.rating || 1200
-            };
-            
-            if (existingUser && existingUser !== username) {
-                logEvent("Score update: case resolved " + username + " -> " + finalUsername);
+            if (!scores[bbs_key][finalUsername]) {
+                scores[bbs_key][finalUsername] = {wins: 0, losses: 0, draws: 0, rating: 1200};
             }
+            
+            scores[bbs_key][finalUsername].wins += (score.wins || 0);
+            scores[bbs_key][finalUsername].losses += (score.losses || 0);
+            scores[bbs_key][finalUsername].draws += (score.draws || 0);
+            scores[bbs_key][finalUsername].rating = 1200 + 
+                (scores[bbs_key][finalUsername].wins * 25) - 
+                (scores[bbs_key][finalUsername].losses * 15);
         }
     } else {
-        for (var user in packet.scores) {
-            // Check if this user already exists with different case
-            var existingUser = null;
-            for (var existingUsername in scores[bbs_key]) {
-                if (isUserMatch(existingUsername, user)) {
-                    existingUser = existingUsername;
-                    break;
-                }
-            }
-            
-            // Use existing case or new case
-            var finalUsername = existingUser || user;
-            scores[bbs_key][finalUsername] = packet.scores[user];
-            
-            if (existingUser && existingUser !== user) {
-                logEvent("Score update: case resolved " + user + " -> " + finalUsername);
-            }
-        }
+
     }
     
     saveScores(scores);
@@ -3432,29 +3296,6 @@ function sendInterBBSMessage(targetUser, fromInfo, subject, messageBody) {
     }
 }
 
-function periodicMaintenance() {
-    // Request player lists from all nodes every week
-    var PLAYER_LIST_UPDATE_INTERVAL = 7 * 24 * 60 * 60; // 7 days in seconds
-    
-    var lastUpdateFile = new File(ACHESS_DATA_DIR + "last_player_update.txt");
-    var lastUpdate = 0;
-    
-    if (lastUpdateFile.exists && lastUpdateFile.open("r")) {
-        lastUpdate = parseInt(lastUpdateFile.readln(), 10) || 0;
-        lastUpdateFile.close();
-    }
-    
-    var now = time();
-    if ((now - lastUpdate) >= PLAYER_LIST_UPDATE_INTERVAL) {
-        requestPlayerListFromAllNodes();
-        
-        if (lastUpdateFile.open("w")) {
-            lastUpdateFile.writeln(now.toString());
-            lastUpdateFile.close();
-        }
-    }
-}
-
 function processInterBBSInboundPacket(filename) {
     try {
         logEvent("Processing: " + filename);
@@ -3583,17 +3424,6 @@ function processInterBBSInboundPacket(filename) {
     }
 }
 
-function debugNodeAddresses() {
-    var nodes = loadInterBBSNodes();
-    print("=== NODE ADDRESS DEBUG ===\n");
-    for (var address in nodes) {
-        var node = nodes[address];
-        print("Node: " + node.name + "\n");
-        print("  Address: '" + address + "'\n");
-        print("  Last seen: " + node.last_seen + "\n\n");
-    }
-}
-
 // Helper function for file operations if they don't exist
 function file_get_contents(filename) {
     var f = new File(filename);
@@ -3678,19 +3508,7 @@ function sendInterBBSPackets() {
     
     var nodes = loadInterBBSNodes();
     var scores = loadScores();
-    var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
-    var localScores = scores[ourBBS] || {};
-    
-    // Log what we're about to send
-    print("Local scores to be shared:\r\n");
-    var playerCount = 0;
-    for (var player in localScores) {
-        playerCount++;
-        print("  " + player + ": W:" + (localScores[player].wins || 0) + 
-              " L:" + (localScores[player].losses || 0) + 
-              " D:" + (localScores[player].draws || 0) + "\r\n");
-    }
-    print("Total: " + playerCount + " player records\r\n");
+    var localScores = scores[getLocalBBS("name") + " (" + getLocalBBS("address") + ")"] || {};
     
     var nodeCount = 0;
     for (var address in nodes) {
@@ -3702,47 +3520,8 @@ function sendInterBBSPackets() {
         return;
     }
     
-    // Also send node info to all nodes to ensure we're registered properly
-    for (var address in nodes) {
-        // Skip sending to ourselves
-        if (address === getLocalBBS("address")) {
-            print("Skipping self (" + address + ")\r\n");
-            continue;
-        }
-        
-        var node = nodes[address];
-        var nodeInfoPacket = {
-            type: "node_info",
-            from: {
-                bbs: getLocalBBS("name"),
-                address: getLocalBBS("address"),
-                sysop: getLocalBBS("sysop") || getLocalBBS("operator"),
-                location: getLocalBBS("location") || "",
-                user: "SYSTEM"
-            },
-            to: {
-                bbs: node.name,
-                address: node.address
-            },
-            created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
-        };
-        
-        var nodeFilename = "achess_nodeinfo_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
-        var nodePath = INTERBBS_OUT_DIR + nodeFilename;
-        
-        if (saveJSONFile(nodePath, nodeInfoPacket)) {
-            print("  Sent node info to " + node.name + " (" + address + ")\r\n");
-            logEvent("Sent node info to " + node.name);
-        }
-    }
-    
     var sent = 0;
     for (var address in nodes) {
-        // Skip sending to ourselves
-        if (address === getLocalBBS("address")) {
-            continue;
-        }
-        
         var node = nodes[address];
         
         var packet = {
@@ -3750,8 +3529,8 @@ function sendInterBBSPackets() {
             from: {
                 bbs: getLocalBBS("name"),
                 address: getLocalBBS("address"),
-                sysop: getLocalBBS("sysop") || getLocalBBS("operator"),
-                location: getLocalBBS("location") || ""
+                sysop: getLocalBBS("sysop"),
+                location: getLocalBBS("location")
             },
             to: {
                 bbs: node.name,
@@ -3761,7 +3540,7 @@ function sendInterBBSPackets() {
             created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
         };
         
-        var filename = "achess_scores_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
+        var filename = "achess_scores_" + address.replace(/[^A-Za-z0-9]/g, "_") + ".json";
         var filepath = INTERBBS_OUT_DIR + filename;
         
         if (saveJSONFile(filepath, packet)) {
@@ -3772,11 +3551,8 @@ function sendInterBBSPackets() {
         }
     }
     
-    print("Score packets sent: " + sent + "/" + (nodeCount-1) + "\r\n");
+    print("Score packets sent: " + sent + "/" + nodeCount + "\r\n");
     logEvent("Sent " + sent + " score packets");
-    
-    // Request player lists from all nodes while we're at it
-    requestPlayerListFromAllNodes();
 }
 
 // Send outbound challenge
@@ -3935,31 +3711,26 @@ function sendInterBBSMessage(targetBBS, targetUser, subject, body) {
         return false;
     }
     
-    // Ensure targetUser is explicitly set (never default to "ALL")
-    if (!targetUser || targetUser.trim() === "") {
-        print("ERROR: Target user must be specified for direct messages\r\n");
-        return false;
-    }
-    
+    // UPDATED: Create packet in root-level format that matches inbound expectations
     var packet = {
         type: "message",
-        bbs: getLocalBBS("name"),
-        address: getLocalBBS("address"),
+        bbs: getLocalBBS("name"),                    // Root level
+        address: getLocalBBS("address"),             // Root level  
         to_bbs: targetNode.name,
         to_addr: targetNode.address,
-        to_user: targetUser,
+        to_user: targetUser || "",
         from_user: user.alias || user.name || "LocalUser",
         subject: subject || "InterBBS Message",
         body: body || "",
-        created: strftime("%Y-%m-%d %H:%M:%S", time())
+        created: strftime("%Y-%m-%d %H:%M:%S", time())  // Match X-Bit format
     };
     
     var filename = "achess_message_" + targetNode.address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + ".json";
     var filepath = INTERBBS_OUT_DIR + filename;
     
     if (saveJSONFile(filepath, packet)) {
-        print("Message sent to " + targetUser + " @ " + targetBBS + "\r\n");
-        logEvent("Sent message to " + targetUser + " @ " + targetBBS);
+        print("Message sent to " + (targetUser || "ALL") + " @ " + targetBBS + "\r\n");
+        logEvent("Sent message to " + (targetUser || "ALL") + " @ " + targetBBS);
         return true;
     } else {
         print("ERROR: Could not send message\r\n");
