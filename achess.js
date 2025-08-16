@@ -141,22 +141,32 @@ function ensureGamesDir() {
     if (!file_exists(dir)) mkdir(dir);
 }
 
-// Player request function for InterBBS
+// Enhanced function to properly request player lists from any node
 function requestPlayerList(nodeAddress) {
     var nodes = readNodes();
     var targetNode = null;
     
+    console.print("\r\nLooking for node with address: " + nodeAddress + "\r\n");
+    
     for (var i = 0; i < nodes.length; i++) {
         if (nodes[i].address === nodeAddress) {
             targetNode = nodes[i];
+            console.print("Found node: " + nodes[i].name + "\r\n");
             break;
         }
     }
     
-    if (!targetNode) return false;
+    if (!targetNode) {
+        console.print("ERROR: Target node not found with address " + nodeAddress + "\r\n");
+        return false;
+    }
+    
+    // Generate unique request ID to prevent collisions
+    var requestId = "req_" + Math.floor(Math.random() * 100000) + "_" + time();
     
     var requestPacket = {
         type: "player_list_request",
+        request_id: requestId,
         from: {
             bbs: getLocalBBS("name"),
             address: getLocalBBS("address"),
@@ -169,16 +179,21 @@ function requestPlayerList(nodeAddress) {
         created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
     };
     
+    console.print("Creating request packet for " + targetNode.name + "...\r\n");
+    
     var fname = format("achess_playerlist_req_%s_%s.json", 
-        nodeAddress.replace(/[^A-Za-z0-9]/g, "_"),
+        requestId, // Use the unique ID in the filename
         time());
     var path = INTERBBS_OUT_DIR + fname;
     var f = new File(path);
     if (f.open("w+")) {
         f.write(JSON.stringify(requestPacket, null, 2));
         f.close();
+        console.print("Request sent successfully. Packet: " + fname + "\r\n");
         return true;
     }
+    
+    console.print("ERROR: Could not create request file!\r\n");
     return false;
 }
 
@@ -1472,6 +1487,17 @@ function showAchessNotificationsInteractive() {
     var currentPage = 0;
     var notesPerPage = 5;
     var totalPages = Math.ceil(myNotes.length / notesPerPage);
+    var selectedNotes = []; // Array to track selected notifications
+    
+    // Helper function to check if a value exists in an array (instead of using includes())
+    function isInArray(arr, value) {
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] === value) {
+                return true;
+            }
+        }
+        return false;
+    }
     
     while (bbs.online && !js.terminated) {
         console.clear();
@@ -1484,15 +1510,29 @@ function showAchessNotificationsInteractive() {
         for (var i = startIdx; i < endIdx; i++) {
             var n = myNotes[i];
             var unread = n.read ? "" : " \x01h\x01r(UNREAD)\x01n";
-            console.print(format("\x01h\x01g[%d]%s \x01w\x01hSubject: \x01n%s  Date: %s\r\n", 
-                i+1, unread, n.subject || "No subject", n.time || ""));
-            console.print((n.body || "") + "\r\n");
+            var selected = isInArray(selectedNotes, i) ? " \x01h\x01g[X]\x01n" : " \x01h\x01w[ ]\x01n";
+            
+            console.print(format("\x01h\x01g[%d]%s%s \x01w\x01hSubject: \x01n%s  Date: %s\r\n", 
+                i+1, selected, unread, n.subject || "No subject", n.time || ""));
+            
+            // Safely truncate body text to prevent errors
+            var bodyText = n.body || "";
+            if (bodyText.length > 60) {
+                bodyText = bodyText.substring(0, 60) + "...";
+            }
+            console.print(bodyText + "\r\n");
+            
             console.print("\x01b--------------------------------------------------\x01n\r\n");
         }
         
-        // Show navigation instructions
-        console.print("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + "\x01n\r\n");
-        console.print("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  \x01h\x01c[#]\x01n Select notification  \x01h\x01c[Q]\x01n Quit\r\n");
+        // Show navigation and selection instructions
+        console.print("\r\n\x01h\x01wPage " + (currentPage + 1) + " of " + totalPages + 
+                     " - " + selectedNotes.length + " note(s) selected\x01n\r\n");
+        console.print("\x01h\x01c[N]\x01n Next page  \x01h\x01c[P]\x01n Previous page  " + 
+                     "\x01h\x01c[#]\x01n Select notification  \x01h\x01c[Q]\x01n Quit\r\n");
+        console.print("\x01h\x01c[S#]\x01n Select/Deselect #  \x01h\x01c[A]\x01n Select All  " + 
+                     "\x01h\x01c[C]\x01n Clear All Selections\r\n");
+        console.print("\x01h\x01c[D]\x01n Delete Selected  \x01h\x01c[DA]\x01n Delete All\r\n");
         console.print("Enter your choice: ");
         
         var input = console.getstr(5).toUpperCase();
@@ -1502,6 +1542,144 @@ function showAchessNotificationsInteractive() {
             if (currentPage < totalPages - 1) currentPage++;
         } else if (input === "P") {
             if (currentPage > 0) currentPage--;
+        } else if (input === "A") {
+            // Select all notifications
+            selectedNotes = [];
+            for (var i = 0; i < myNotes.length; i++) {
+                selectedNotes.push(i);
+            }
+            console.print("\r\n\x01h\x01gAll notifications selected.\x01n");
+            console.print("\r\nPress any key to continue...");
+            console.getkey();
+        } else if (input === "C") {
+            // Clear all selections
+            selectedNotes = [];
+            console.print("\r\n\x01h\x01yAll selections cleared.\x01n");
+            console.print("\r\nPress any key to continue...");
+            console.getkey();
+        } else if (input === "D") {
+            // Delete selected notifications
+            if (selectedNotes.length === 0) {
+                console.print("\r\n\x01h\x01yNo notifications selected.\x01n");
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+                continue;
+            }
+            
+            console.print("\r\n\x01h\x01yDelete " + selectedNotes.length + " selected notification(s)? (Y/N): \x01n");
+            var confirm = console.getkey().toUpperCase();
+            
+            if (confirm === "Y") {
+                // Sort in descending order to avoid index shifting during removal
+                selectedNotes.sort(function(a, b) { return b - a; });
+                
+                // Create indices map between myNotes and the original notes array
+                var noteIndices = [];
+                var myNoteIndex = 0;
+                
+                for (var i = 0; i < notes.length; i++) {
+                    if (typeof notes[i].to === "string" && notes[i].to.toLowerCase() === user.alias.toLowerCase()) {
+                        noteIndices[myNoteIndex] = i;
+                        myNoteIndex++;
+                    }
+                }
+                
+                // Remove from the original array
+                for (var i = 0; i < selectedNotes.length; i++) {
+                    var myNoteIdx = selectedNotes[i];
+                    var origNoteIdx = noteIndices[myNoteIdx];
+                    
+                    // Skip if index is out of range (safety check)
+                    if (origNoteIdx === undefined || origNoteIdx < 0 || origNoteIdx >= notes.length) {
+                        continue;
+                    }
+                    
+                    notes.splice(origNoteIdx, 1);
+                    
+                    // Update indices for remaining notes (they shift down after removal)
+                    for (var j = 0; j < noteIndices.length; j++) {
+                        if (noteIndices[j] > origNoteIdx) {
+                            noteIndices[j]--;
+                        }
+                    }
+                }
+                
+                writeAchessNotifications(notes);
+                
+                console.print("\r\n\x01h\x01gSelected notifications deleted.\x01n");
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+                
+                // Refresh the list
+                notes = readAchessNotifications();
+                myNotes = notes.filter(function(n) {
+                    return typeof n.to === "string" && n.to.toLowerCase() === user.alias.toLowerCase();
+                });
+                
+                if (myNotes.length === 0) {
+                    console.print("\r\n\x01h\x01gNo more notifications.\x01n");
+                    console.print("\r\nPress any key to continue...");
+                    console.getkey();
+                    return;
+                }
+                
+                // Reset selections and recalculate pages
+                selectedNotes = [];
+                totalPages = Math.ceil(myNotes.length / notesPerPage);
+                if (currentPage >= totalPages) {
+                    currentPage = totalPages - 1;
+                }
+            }
+        } else if (input === "DA") {
+            // Delete all notifications
+            console.print("\r\n\x01h\x01yAre you sure you want to delete ALL your notifications? (Y/N): \x01n");
+            var confirm = console.getkey().toUpperCase();
+            
+            if (confirm === "Y") {
+                // Remove all of the current user's notifications
+                var newNotes = [];
+                for (var i = 0; i < notes.length; i++) {
+                    var note = notes[i];
+                    if (!(typeof note.to === "string" && note.to.toLowerCase() === user.alias.toLowerCase())) {
+                        newNotes.push(note);
+                    }
+                }
+                
+                writeAchessNotifications(newNotes);
+                
+                console.print("\r\n\x01h\x01gAll your notifications have been deleted.\x01n");
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+                return;
+            }
+        } else if (input.substring(0, 1) === "S" && input.length > 1) {
+            // Select/deselect a specific notification
+            var noteNum = parseInt(input.substring(1)) - 1;
+            if (!isNaN(noteNum) && noteNum >= 0 && noteNum < myNotes.length) {
+                var found = false;
+                var foundIndex = -1;
+                
+                // Find the note in the selected array
+                for (var i = 0; i < selectedNotes.length; i++) {
+                    if (selectedNotes[i] === noteNum) {
+                        found = true;
+                        foundIndex = i;
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    // Select the notification
+                    selectedNotes.push(noteNum);
+                    console.print("\r\n\x01h\x01gNotification " + (noteNum + 1) + " selected.\x01n");
+                } else {
+                    // Deselect the notification
+                    selectedNotes.splice(foundIndex, 1);
+                    console.print("\r\n\x01h\x01yNotification " + (noteNum + 1) + " deselected.\x01n");
+                }
+                console.print("\r\nPress any key to continue...");
+                console.getkey();
+            }
         } else {
             // Check if it's a number for notification selection
             var noteNum = parseInt(input);
@@ -1522,6 +1700,7 @@ function showAchessNotificationsInteractive() {
                     }
                     
                     // Recalculate pages
+                    selectedNotes = [];
                     totalPages = Math.ceil(myNotes.length / notesPerPage);
                     if (currentPage >= totalPages) {
                         currentPage = totalPages - 1;
@@ -2304,9 +2483,11 @@ function ensureSaveDir() {
     if (!file_exists(SAVE_DIR))
         mkdir(SAVE_DIR);
 }
+
 function getGameFileName(usernum) {
     return SAVE_DIR + "chess_" + usernum + ".json";
 }
+
 function saveGame(usernum, game) {
     ensureSaveDir();
     // Save only serializable state; NEVER expect or use game.board here!
@@ -2329,6 +2510,7 @@ function saveGame(usernum, game) {
     }
     return false; // Return failure
 }
+
 function loadGame(usernum) {
     var fname = getGameFileName(usernum);
     if (!file_exists(fname)) return null;
@@ -2344,10 +2526,12 @@ function loadGame(usernum) {
     
     return obj;
 }
+
 function deleteGame(usernum) {
     var fname = getGameFileName(usernum);
     if (file_exists(fname)) file_remove(fname);
 }
+
 function readScores() {
     if (!file_exists(SCORES_FILE)) return [];
     var f = new File(SCORES_FILE);
@@ -2357,6 +2541,7 @@ function readScores() {
     if (!Array.isArray(arr)) return [];
     return arr;
 }
+
 function writeScores(scores) {
     if (!Array.isArray(scores)) scores = [];
     var f = new File(SCORES_FILE);
@@ -2365,6 +2550,7 @@ function writeScores(scores) {
         f.close();
     }
 }
+
 function addScore(username, result, vs) {
     var scores = readScores();
     if (!Array.isArray(scores)) scores = [];
@@ -2380,21 +2566,101 @@ function addScore(username, result, vs) {
     updateSummaryScoresFromRecent(scores);
     updateScoreFiles();
 }
+
 function updateSummaryScoresFromRecent(scores) {
     var summary = {};
+    var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
+    summary[ourBBS] = {};
+    
     for (var i = 0; i < scores.length; i++) {
         var s = scores[i];
         var name = s.user;
-        if (!summary[name]) summary[name] = {wins:0, losses:0, draws:0};
+        if (!summary[ourBBS][name]) summary[ourBBS][name] = {wins:0, losses:0, draws:0, rating:1200};
         if (typeof s.result === "string") {
-            if (s.result.match(/win/i)) summary[name].wins++;
-            else if (s.result.match(/loss/i)) summary[name].losses++;
-            else if (s.result.match(/draw/i)) summary[name].draws++;
+            if (s.result.match(/win/i)) summary[ourBBS][name].wins++;
+            else if (s.result.match(/loss/i)) summary[ourBBS][name].losses++;
+            else if (s.result.match(/draw/i)) summary[ourBBS][name].draws++;
         }
     }
+    
+    // Calculate ratings
+    for (var player in summary[ourBBS]) {
+        var stats = summary[ourBBS][player];
+        stats.rating = 1200 + (stats.wins * 25) - (stats.losses * 15);
+    }
+    
     var f = new File(SCORES_SUMMARY);
     if (f.open("w+")) {
         f.write(JSON.stringify(summary, null, 2));
+        f.close();
+    }
+    
+    // Trigger InterBBS score sharing after updating
+    try {
+        // Only run if in main program, not during includes
+        if (typeof(runInterBBSScoreUpdate) === "function") {
+            runInterBBSScoreUpdate();
+        }
+    } catch(e) {
+        // Silently ignore if function not available
+    }
+}
+
+function runInterBBSScoreUpdate() {
+    // Use the safer wrapper script instead of achess_ibbs.js directly
+    var wrapperScript = js.exec_dir + "chess_score_update.js";
+    
+    // Create the script if it doesn't exist
+    if (!file_exists(wrapperScript)) {
+        var f = new File(wrapperScript);
+        if (f.open("w")) {
+            f.writeln("// Chess Score Update Wrapper");
+            f.writeln("// This script safely handles score updates without Windows errors");
+            f.writeln("");
+            f.writeln("try {");
+            f.writeln("    // Check if we're in a proper Synchronet environment");
+            f.writeln("    if (typeof(load) === 'function' && typeof(js) !== 'undefined') {");
+            f.writeln("        // We're in Synchronet - run the proper update");
+            f.writeln("        load(js.exec_dir + \"achess_ibbs.js\");");
+            f.writeln("        if (typeof(argv) !== 'undefined' && argv.length > 0) {");
+            f.writeln("            print(\"Running with command: \" + argv[0]);");
+            f.writeln("        }");
+            f.writeln("    } else {");
+            f.writeln("        // We're not in Synchronet - this script was likely called directly from Windows");
+            f.writeln("        print(\"This script must be run within the Synchronet JavaScript environment.\");");
+            f.writeln("    }");
+            f.writeln("} catch(e) {");
+            f.writeln("    // Log error but don't let it crash anything");
+            f.writeln("    if (typeof(log) === 'function') {");
+            f.writeln("        log(\"ERROR: \" + e.toString());");
+            f.writeln("    }");
+            f.writeln("}");
+            f.close();
+        }
+    }
+    
+    // Run the wrapper script instead
+    try {
+        // This is the key change - we call it via bbs.exec() which handles Windows paths properly
+        if (typeof bbs !== "undefined" && bbs.exec) {
+            bbs.exec(wrapperScript, 1); // EX_NATIVE flag helps with paths
+            logEvent("Triggered InterBBS score update via wrapper");
+        } else {
+            system.exec(wrapperScript + " outbound");
+            logEvent("Triggered InterBBS score update via system.exec");
+        }
+        return true;
+    } catch(e) {
+        logEvent("Error triggering InterBBS score update: " + e.toString());
+        return false;
+    }
+}
+
+function logEvent(message) {
+    var logFile = js.exec_dir + "achess.log";
+    var f = new File(logFile);
+    if (f.open("a")) {
+        f.writeln(strftime("%Y-%m-%d %H:%M:%S", time()) + " - " + message);
         f.close();
     }
 }
