@@ -993,13 +993,21 @@ function playVsComputer(loadFromSave, saveObj) {
                 }
                 
                 // Record the score
-                addScore(user.alias, result, "Computer (" + difficulty + ")");
+                try {
+                    safeAddScore(user.alias, result, "Computer (" + difficulty + ")");
+                } catch(e) {
+                    logEvent("Error in score update: " + e.toString());
+                }
             } else {
                 gameResult = "\x01h\x01y*** DRAW! ***\x01n";
                 victoryMessage = "\x01h\x01yThe game ended in a draw.\x01n";
                 
                 // Record draw
-                addScore(user.alias, "Draw", "Computer (" + difficulty + ")");
+                try {
+                    safeAddScore(user.alias, "Draw", "Computer (" + difficulty + ")");
+                } catch(e) {
+                    logEvent("Error in score update: " + e.toString());
+                }
             }
             
             // Center the game result message
@@ -2415,7 +2423,7 @@ function writeScoresASC() {
     if (f.open("w+")) {
         f.writeln("A-Net Synchronet Chess High Scores");
         f.writeln("===============================================");
-        f.writeln("User                 Wins   Losses   Draws");
+        f.writeln("User                            Wins   Losses   Draws");
         f.writeln("-----------------------------------------------");
         if (scores.length === 0) {
             f.writeln("Computer (Easy)        5        2       3");
@@ -2451,9 +2459,9 @@ function writeScoresANS() {
     var f = new File(SCORES_ANS);
     if (f.open("w+")) {
         f.writeln("\x01c\x01hA-Net Synchronet Chess High Scores\x01n");
-        f.writeln("\x01b\x01h===============================================\x01n");
-        f.writeln("\x01w\x01hUser                \x01gWins   \x01rLosses   \x01yDraws\x01n");
-        f.writeln("\x01b-----------------------------------------------\x01n");
+        f.writeln("\x01b\x01h==================================================\x01n");
+        f.writeln("\x01w\x01hUser                        \x01gWins   \x01rLosses   \x01yDraws\x01n");
+        f.writeln("\x01b--------------------------------------------------\x01n");
         if (scores.length === 0) {
             f.writeln("\x01wComputer (Easy)      \x01g   5   \x01r     2   \x01y   3\x01n");
             f.writeln("\x01wComputer (Medium)    \x01g   3   \x01r     5   \x01y   2\x01n");
@@ -2467,7 +2475,7 @@ function writeScoresANS() {
                 );
             }
         }
-        f.writeln("\x01b===============================================\x01n");
+        f.writeln("\x01b==================================================\x01n");
         f.close();
     }
 }
@@ -2483,11 +2491,9 @@ function ensureSaveDir() {
     if (!file_exists(SAVE_DIR))
         mkdir(SAVE_DIR);
 }
-
 function getGameFileName(usernum) {
     return SAVE_DIR + "chess_" + usernum + ".json";
 }
-
 function saveGame(usernum, game) {
     ensureSaveDir();
     // Save only serializable state; NEVER expect or use game.board here!
@@ -2510,7 +2516,6 @@ function saveGame(usernum, game) {
     }
     return false; // Return failure
 }
-
 function loadGame(usernum) {
     var fname = getGameFileName(usernum);
     if (!file_exists(fname)) return null;
@@ -2526,12 +2531,10 @@ function loadGame(usernum) {
     
     return obj;
 }
-
 function deleteGame(usernum) {
     var fname = getGameFileName(usernum);
     if (file_exists(fname)) file_remove(fname);
 }
-
 function readScores() {
     if (!file_exists(SCORES_FILE)) return [];
     var f = new File(SCORES_FILE);
@@ -2541,7 +2544,6 @@ function readScores() {
     if (!Array.isArray(arr)) return [];
     return arr;
 }
-
 function writeScores(scores) {
     if (!Array.isArray(scores)) scores = [];
     var f = new File(SCORES_FILE);
@@ -2550,8 +2552,7 @@ function writeScores(scores) {
         f.close();
     }
 }
-
-function addScore(username, result, vs) {
+function safeAddScore(username, result, vs) {
     var scores = readScores();
     if (!Array.isArray(scores)) scores = [];
     var now = strftime("%Y-%m-%d %H:%M", time());
@@ -2566,7 +2567,6 @@ function addScore(username, result, vs) {
     updateSummaryScoresFromRecent(scores);
     updateScoreFiles();
 }
-
 function updateSummaryScoresFromRecent(scores) {
     var summary = {};
     var ourBBS = getLocalBBS("name") + " (" + getLocalBBS("address") + ")";
@@ -2605,54 +2605,16 @@ function updateSummaryScoresFromRecent(scores) {
         // Silently ignore if function not available
     }
 }
-
 function runInterBBSScoreUpdate() {
-    // Use the safer wrapper script instead of achess_ibbs.js directly
-    var wrapperScript = js.exec_dir + "chess_score_update.js";
-    
-    // Create the script if it doesn't exist
-    if (!file_exists(wrapperScript)) {
-        var f = new File(wrapperScript);
-        if (f.open("w")) {
-            f.writeln("// Chess Score Update Wrapper");
-            f.writeln("// This script safely handles score updates without Windows errors");
-            f.writeln("");
-            f.writeln("try {");
-            f.writeln("    // Check if we're in a proper Synchronet environment");
-            f.writeln("    if (typeof(load) === 'function' && typeof(js) !== 'undefined') {");
-            f.writeln("        // We're in Synchronet - run the proper update");
-            f.writeln("        load(js.exec_dir + \"achess_ibbs.js\");");
-            f.writeln("        if (typeof(argv) !== 'undefined' && argv.length > 0) {");
-            f.writeln("            print(\"Running with command: \" + argv[0]);");
-            f.writeln("        }");
-            f.writeln("    } else {");
-            f.writeln("        // We're not in Synchronet - this script was likely called directly from Windows");
-            f.writeln("        print(\"This script must be run within the Synchronet JavaScript environment.\");");
-            f.writeln("    }");
-            f.writeln("} catch(e) {");
-            f.writeln("    // Log error but don't let it crash anything");
-            f.writeln("    if (typeof(log) === 'function') {");
-            f.writeln("        log(\"ERROR: \" + e.toString());");
-            f.writeln("    }");
-            f.writeln("}");
-            f.close();
+    // Check if the InterBBS script exists
+    var ibbsScript = js.exec_dir + "achess_ibbs.js";
+    if (file_exists(ibbsScript)) {
+        try {
+            system.exec(ibbsScript + " outbound", true);
+            logEvent("Triggered InterBBS score update");
+        } catch(e) {
+            logEvent("Error triggering InterBBS score update: " + e.toString());
         }
-    }
-    
-    // Run the wrapper script instead
-    try {
-        // This is the key change - we call it via bbs.exec() which handles Windows paths properly
-        if (typeof bbs !== "undefined" && bbs.exec) {
-            bbs.exec(wrapperScript, 1); // EX_NATIVE flag helps with paths
-            logEvent("Triggered InterBBS score update via wrapper");
-        } else {
-            system.exec(wrapperScript + " outbound");
-            logEvent("Triggered InterBBS score update via system.exec");
-        }
-        return true;
-    } catch(e) {
-        logEvent("Error triggering InterBBS score update: " + e.toString());
-        return false;
     }
 }
 
@@ -2989,20 +2951,6 @@ function showScrollerMenu(items, title, getDisplayText) {
 function chess_menu() {
     load("sbbsdefs.js");
     require("dd_lightbar_menu.js", "DDLightbarMenu");
-    
-    // Auto-register the current player in the InterBBS database
-    if (typeof autoRegisterCurrentPlayer === "function") {
-        try {
-            autoRegisterCurrentPlayer();
-        } catch(e) {
-            // Log but continue if there's an error
-            if (typeof logEvent === "function") {
-                logEvent("Error auto-registering player: " + e.toString());
-            } else {
-                console.print("\r\nWarning: Could not auto-register player\r\n");
-            }
-        }
-    }
 
     var WIDTH = console.screen_columns;
     var HEIGHT = console.screen_rows;
@@ -3383,8 +3331,8 @@ function playVsPlayer(resume, saveObj) {
                     victoryMessage = "\x01h\x01rYou have been defeated by " + winnerName + ".\x01n";
                 }
                 
-                addScore(winnerName, "Win", loserName);
-                addScore(loserName, "Loss", winnerName);
+                safeAddScore(winnerName, "Win", loserName);
+                safeAddScore(loserName, "Loss", winnerName);
             } else if (
                 (game.board.in_draw && game.board.in_draw()) ||
                 (game.board.in_stalemate && game.board.in_stalemate())
@@ -3392,8 +3340,8 @@ function playVsPlayer(resume, saveObj) {
                 gameResult = "\x01h\x01y*** DRAW! ***\x01n";
                 victoryMessage = "\x01h\x01yThe game ended in a draw between you and your opponent.\x01n";
                 
-                addScore(game.white, "Draw", game.black);
-                addScore(game.black, "Draw", game.white);
+                safeAddScore(game.white, "Draw", game.black);
+                safeAddScore(game.black, "Draw", game.white);
             }
             
             var padLen = Math.floor((40 - gameResult.replace(/\x01./g, "").length) / 2);
