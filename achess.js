@@ -2989,6 +2989,20 @@ function showScrollerMenu(items, title, getDisplayText) {
 function chess_menu() {
     load("sbbsdefs.js");
     require("dd_lightbar_menu.js", "DDLightbarMenu");
+    
+    // Auto-register the current player in the InterBBS database
+    if (typeof autoRegisterCurrentPlayer === "function") {
+        try {
+            autoRegisterCurrentPlayer();
+        } catch(e) {
+            // Log but continue if there's an error
+            if (typeof logEvent === "function") {
+                logEvent("Error auto-registering player: " + e.toString());
+            } else {
+                console.print("\r\nWarning: Could not auto-register player\r\n");
+            }
+        }
+    }
 
     var WIDTH = console.screen_columns;
     var HEIGHT = console.screen_rows;
