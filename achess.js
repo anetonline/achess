@@ -141,6 +141,41 @@ function ensureGamesDir() {
     if (!file_exists(dir)) mkdir(dir);
 }
 
+function registerCurrentPlayer() {
+    try {
+        // Simple local implementation
+        var players = loadInterBBSPlayers();
+        var localAddr = getLocalBBS("address");
+        
+        if (!players[localAddr]) players[localAddr] = [];
+        
+        // Check if player already exists
+        var found = false;
+        for (var i = 0; i < players[localAddr].length; i++) {
+            if (players[localAddr][i].username.toLowerCase() === user.alias.toLowerCase()) {
+                players[localAddr][i].lastSeen = strftime("%Y-%m-%d", time());
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            players[localAddr].push({
+                username: user.alias,
+                lastSeen: strftime("%Y-%m-%d", time()),
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0
+            });
+        }
+        
+        saveInterBBSPlayers(players);
+    } catch(e) {
+        // Silently ignore errors
+    }
+}
+
 // Enhanced function to properly request player lists from any node
 function requestPlayerList(nodeAddress) {
     var nodes = readNodes();
@@ -2951,6 +2986,8 @@ function showScrollerMenu(items, title, getDisplayText) {
 function chess_menu() {
     load("sbbsdefs.js");
     require("dd_lightbar_menu.js", "DDLightbarMenu");
+
+    registerCurrentPlayer();
 
     var WIDTH = console.screen_columns;
     var HEIGHT = console.screen_rows;
