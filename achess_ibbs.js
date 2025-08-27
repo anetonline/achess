@@ -144,7 +144,7 @@ function findLocalUser(targetUser) {
 }
 
 function requestPlayerListFromAllNodes() {
-    var nodes = readNodes();
+    var nodes = loadInterBBSNodes();
     var successCount = 0;
     
     print("Requesting player lists from all known nodes...\r\n");
