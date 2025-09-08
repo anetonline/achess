@@ -25,6 +25,69 @@ var DEFAULT_CONFIG = {
     }
 };
 
+function registerCurrentPlayer() {
+    try {
+        // Enhanced local player registration
+        var players = loadInterBBSPlayers();
+        var localAddr = getLocalBBS("address");
+        
+        if (!players[localAddr]) players[localAddr] = [];
+        
+        // Check if player already exists
+        var found = false;
+        for (var i = 0; i < players[localAddr].length; i++) {
+            if (isUserMatch(players[localAddr][i].username, user.alias)) {
+                players[localAddr][i].lastSeen = strftime("%Y-%m-%d", time());
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            players[localAddr].push({
+                username: user.alias,
+                lastSeen: strftime("%Y-%m-%d", time()),
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0
+            });
+        }
+        
+        saveInterBBSPlayers(players);
+        
+        // Now also add to player database
+        var playerDB = loadPlayersDB();
+        if (!playerDB[localAddr]) playerDB[localAddr] = [];
+        
+        // Check if player already exists in the player DB
+        var playerFound = false;
+        for (var i = 0; i < playerDB[localAddr].length; i++) {
+            if (isUserMatch(playerDB[localAddr][i].username, user.alias)) {
+                playerDB[localAddr][i].lastSeen = strftime("%Y-%m-%d", time());
+                playerFound = true;
+                break;
+            }
+        }
+        
+        if (!playerFound) {
+            playerDB[localAddr].push({
+                username: user.alias,
+                lastSeen: strftime("%Y-%m-%d", time()),
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0
+            });
+        }
+        
+        savePlayersDB(playerDB);
+    } catch(e) {
+        // Log error but continue
+        logEvent("Error in registerCurrentPlayer: " + e.toString());
+    }
+}
+
 // Auto-register current user in players database on game entry
 function autoRegisterCurrentPlayer() {
     var players = loadInterBBSPlayers();
@@ -2103,29 +2166,37 @@ function processInboundPlayerListResponse(packet) {
     
     logEvent("Processing player list response from " + packet.from.bbs);
     
+    // Update BOTH the players database AND the local players DB
     var players = loadInterBBSPlayers();
+    var playerDB = loadPlayersDB();
     var nodeAddress = packet.from.address || packet.from.bbs;
     
-    // Clear existing players for this node and add new ones
+    // Clear existing players for this node and add new ones in both databases
     players[nodeAddress] = [];
+    playerDB[nodeAddress] = [];
     
     if (Array.isArray(packet.players)) {
         for (var i = 0; i < packet.players.length; i++) {
             var player = packet.players[i];
-            players[nodeAddress].push({
+            var playerEntry = {
                 username: player.username,
                 lastSeen: player.lastSeen || strftime("%Y-%m-%d", time()),
                 gamesPlayed: player.gamesPlayed || 0,
                 wins: player.wins || 0,
                 losses: player.losses || 0,
                 draws: player.draws || 0
-            });
+            };
+            
+            // Add to both databases
+            players[nodeAddress].push(playerEntry);
+            playerDB[nodeAddress].push(playerEntry);
         }
         
         logEvent("Updated player list from " + packet.from.bbs + " (" + packet.players.length + " players)");
     }
     
     saveInterBBSPlayers(players);
+    savePlayersDB(playerDB);
     updateNodeInfo(packet.from);
     
     // Notify the requesting user about the received player list
@@ -2267,35 +2338,53 @@ function processInboundPacket(packet) {
     
     print("Packet type: " + packet.type + "\r\n");
     
+    // Always return true for processing, even if the packet is not for this BBS
+    // This ensures the packet gets removed from the inbound folder
+    var result = false;
+    
     switch (packet.type.toLowerCase()) {
         case "challenge":
-            return processInboundChallenge(packet);
+            result = processInboundChallenge(packet);
+            break;
         case "challenge_response":
         case "accept":
         case "decline":
-            return processInboundChallengeResponse(packet);
+            result = processInboundChallengeResponse(packet);
+            break;
         case "move":
-            return processInboundMove(packet);
+            result = processInboundMove(packet);
+            break;
         case "message":
-            return processInboundMessage(packet);
+            result = processInboundMessage(packet);
+            break;
         case "score_update":
-            return processInboundScoreUpdate(packet);
+            result = processInboundScoreUpdate(packet);
+            break;
         case "node_info":
-            return processInboundNodeInfo(packet);
+            result = processInboundNodeInfo(packet);
+            break;
         case "player_list_request":
-            return processInboundPlayerListRequest(packet);
+            result = processInboundPlayerListRequest(packet);
+            break;
         case "player_list_response":
-            return processInboundPlayerListResponse(packet);
+            result = processInboundPlayerListResponse(packet);
+            break;
         case "league_reset":
-            return processInboundLeagueReset(packet);
+            result = processInboundLeagueReset(packet);
+            break;
         case "reset_acknowledgment":
-            return processInboundResetAck(packet);
+            result = processInboundResetAck(packet);
+            break;
         case "node_registry_update":
-            return processInboundNodeRegistryUpdate(packet);
+            result = processInboundNodeRegistryUpdate(packet);
+            break;
         default:
             logEvent("Unknown packet type: " + packet.type);
-            return false;
+            return true; // Still return true to remove from inbound
     }
+    
+    // Even if processing failed for this BBS, return true to remove from inbound
+    return true;
 }
 
 // Validate and deduplicate nodes before saving
@@ -2574,11 +2663,24 @@ function processInboundResetAck(packet) {
     return true;
 }
 
-// Process inbound challenge - UPDATED: Case-insensitive username matching
+// Process inbound challenge - UPDATED: Case-insensitive username matching & BBS targeting
 function processInboundChallenge(packet) {
     if (!packet.from || (!packet.challenge_id && !packet.game_id)) {
         logEvent("Invalid challenge packet - missing required fields");
         return false;
+    }
+    
+    // Check if this packet is meant for this BBS
+    if (packet.to && packet.to.bbs && packet.to.address) {
+        var myBBSName = getLocalBBS("name");
+        var myBBSAddr = getLocalBBS("address");
+        
+        if (!equalsIgnoreCase(packet.to.bbs, myBBSName) && 
+            !equalsIgnoreCase(packet.to.address, myBBSAddr)) {
+            logEvent("Challenge not for this BBS - intended for: " + 
+                    packet.to.bbs + " (" + packet.to.address + ") - skipping local processing");
+            return true; // Return true to remove from inbound without processing
+        }
     }
     
     var games = loadInterBBSGames();
@@ -2733,11 +2835,49 @@ function processInboundChallengeResponse(packet) {
     return false;
 }
 
-// Process inbound move - UPDATED: Case-insensitive matching
+// Process inbound move - UPDATED: Case-insensitive matching & BBS targeting
 function processInboundMove(packet) {
     if (!packet.game_id || !packet.move || !packet.fen) {
         logEvent("Invalid move packet - missing required fields");
         return false;
+    }
+    
+    // Check if this move is meant for this BBS by game ID or explicit target
+    var isForThisBBS = false;
+    var myBBSAddr = getLocalBBS("address");
+    var myBBSName = getLocalBBS("name");
+    
+    // If there's an explicit target address/name, check it first
+    if (packet.to) {
+        if ((packet.to.address && equalsIgnoreCase(packet.to.address, myBBSAddr)) ||
+            (packet.to.bbs && equalsIgnoreCase(packet.to.bbs, myBBSName))) {
+            isForThisBBS = true;
+        }
+    }
+    
+    // If no explicit target or target doesn't match, check game database
+    if (!isForThisBBS) {
+        var games = loadInterBBSGames();
+        var gameFound = false;
+        
+        for (var i = 0; i < games.length; i++) {
+            if (games[i].game_id === packet.game_id) {
+                gameFound = true;
+                break;
+            }
+        }
+        
+        if (!gameFound) {
+            logEvent("Move for unknown game: " + packet.game_id + " - not for this BBS");
+            return true; // Return true to remove from inbound without processing
+        }
+        
+        isForThisBBS = true; // We found the game in our database
+    }
+    
+    if (!isForThisBBS) {
+        logEvent("Move not for this BBS - skipping local processing");
+        return true; // Return true to remove from inbound without processing
     }
     
     var games = loadInterBBSGames();
@@ -2802,7 +2942,7 @@ function processInboundMove(packet) {
     }
     
     logEvent("Move for unknown game: " + packet.game_id);
-    return false;
+    return true; // Still return true to remove from inbound
 }
 
 // ProcessInboundMessage function
@@ -2835,7 +2975,7 @@ function processInboundMessage(packet) {
         (messageData.from_user && messageData.from_address) ||
         (messageData.from_user && messageData.address) ||
         (messageData.from_user && messageData.bbs && messageData.address)
-    ) { // NEW: handle root level bbs+address
+    ) {
         hasFromInfo = true;
     }
 
@@ -2844,7 +2984,7 @@ function processInboundMessage(packet) {
         (messageData.message && messageData.message.trim() !== "") ||
         (messageData.body && messageData.body.trim() !== "") ||
         (messageData.subject && messageData.subject.trim() !== "")
-    ) { // NEW: allow subject-only messages
+    ) {
         hasMessageBody = true;
     }
 
@@ -2855,7 +2995,7 @@ function processInboundMessage(packet) {
     }
 
     if (!hasFromInfo || !hasMessageBody) {
-        logEvent("ERROR: Invalid message packet - missing required fields (from info or message body)");
+        logEvent("ERROR: Invalid message packet - missing required fields");
         logEvent("Available fields: " + Object.keys(messageData).join(', '));
 
         // Log the actual values for debugging
@@ -2882,16 +3022,18 @@ function processInboundMessage(packet) {
     var targetUser = null;
     var targetAlias = messageData.to_user || (messageData.to ? messageData.to.user : null);
     var targetBBS = messageData.to_bbs || (messageData.to ? messageData.to.bbs : null);
+    var targetAddr = messageData.to_addr || (messageData.to ? messageData.to.address : null);
     
     // CRITICAL: Check if message is intended for THIS BBS specifically
     var myBBSName = getLocalBBS("name");
     var myBBSAddr = getLocalBBS("address");
     
-    // If message has specific target BBS and it's NOT us, don't process locally
-    if (messageData.to_bbs && 
-        !equalsIgnoreCase(messageData.to_bbs, myBBSName) && 
-        messageData.to_bbs !== myBBSAddr) {
-        logEvent("Message not for this BBS - intended for: " + messageData.to_bbs);
+    // If message has specific target BBS and it's NOT us, log and return true to process
+    if ((targetBBS && !equalsIgnoreCase(targetBBS, myBBSName) && 
+         !equalsIgnoreCase(targetBBS, myBBSAddr)) ||
+        (targetAddr && !equalsIgnoreCase(targetAddr, myBBSAddr))) {
+        logEvent("Message not for this BBS - intended for: " + 
+                (targetBBS || targetAddr) + " - skipping local processing");
         return true; // Return true so we don't reprocess the packet, but don't add to local messages
     }
 
