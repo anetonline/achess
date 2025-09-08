@@ -917,10 +917,15 @@ function playVsComputer(loadFromSave, saveObj) {
     } else {
         chess = new Chess();
         
-        // Color selection
-        console.print("\r\nPlay as (W)hite or (B)lack? [W]: ");
+        // Color selection with quit option added
+        console.print("\r\nPlay as (W)hite, (B)lack, or (Q)uit? [W]: ");
         var c = console.getkey().toUpperCase();
-        if (c === "B") playerColor = "b";
+        if (c === "Q") {
+            console.print("\r\nReturning to menu...");
+            return; // Exit function to go back to menu
+        } else if (c === "B") {
+            playerColor = "b";
+        }
         
         // Difficulty selection
         console.print("\r\nSelect difficulty: (E)asy, (M)edium, or (H)ard? [E]: ");
