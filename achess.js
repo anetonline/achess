@@ -141,6 +141,10 @@ function ensureGamesDir() {
     if (!file_exists(dir)) mkdir(dir);
 }
 
+function isUserMatch(user1, user2) {
+    return String(user1).toLowerCase() === String(user2).toLowerCase();
+}
+
 function registerCurrentPlayer() {
     try {
         // Simple local implementation
