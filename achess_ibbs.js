@@ -53,15 +53,23 @@ function savePlayersDB(db) {
     }
 }
 
+//registerCurrentPlayer function - verify and create necessary directories and files
 function registerCurrentPlayer() {
     try {
-        // Enhanced local player registration
+        // Ensure the data directory exists
+        if (!file_exists(js.exec_dir + "games")) {
+            mkdir(js.exec_dir + "games");
+        }
+        
+        // Simple local implementation
         var players = loadInterBBSPlayers();
+        var playerDB = loadPlayersDB(); // Also initialize player DB
         var localAddr = getLocalBBS("address");
         
         if (!players[localAddr]) players[localAddr] = [];
+        if (!playerDB[localAddr]) playerDB[localAddr] = [];
         
-        // Check if player already exists
+        // Check if player already exists in players DB
         var found = false;
         for (var i = 0; i < players[localAddr].length; i++) {
             if (isUserMatch(players[localAddr][i].username, user.alias)) {
@@ -82,23 +90,17 @@ function registerCurrentPlayer() {
             });
         }
         
-        saveInterBBSPlayers(players);
-        
-        // Now also add to player database
-        var playerDB = loadPlayersDB();
-        if (!playerDB[localAddr]) playerDB[localAddr] = [];
-        
-        // Check if player already exists in the player DB
-        var playerFound = false;
+        // Also check playerDB
+        found = false;
         for (var i = 0; i < playerDB[localAddr].length; i++) {
             if (isUserMatch(playerDB[localAddr][i].username, user.alias)) {
                 playerDB[localAddr][i].lastSeen = strftime("%Y-%m-%d", time());
-                playerFound = true;
+                found = true;
                 break;
             }
         }
         
-        if (!playerFound) {
+        if (!found) {
             playerDB[localAddr].push({
                 username: user.alias,
                 lastSeen: strftime("%Y-%m-%d", time()),
@@ -109,6 +111,7 @@ function registerCurrentPlayer() {
             });
         }
         
+        saveInterBBSPlayers(players);
         savePlayersDB(playerDB);
     } catch(e) {
         // Log error but continue
@@ -225,11 +228,7 @@ function findLocalUser(targetUser) {
             var userNumber = system.matchuser(targetUser);
             if (userNumber > 0) {
                 var u = new User(userNumber);
-                return {
-                    number: userNumber,
-                    alias: u.alias,
-                    name: u.name
-                };
+                return u.alias; // Return just the alias string, not the user object
             }
         }
         
@@ -2759,16 +2758,10 @@ function processInboundChallenge(packet) {
     // Determine target user with case-insensitive matching
     var targetUser = "PENDING";
     if (packet.to && packet.to.user) {
-        // Make sure we're handling strings properly
-        if (typeof packet.to.user === 'string') {
-            targetUser = findLocalUser(packet.to.user);
-        } else if (packet.to.user && typeof packet.to.user === 'object') {
-            // If it's an object, try to get the username property
-            targetUser = packet.to.user.username || packet.to.user.alias || "PENDING";
-        }
-        logEvent("Challenge targeted to: " + (typeof packet.to.user === 'string' ? 
-                                             packet.to.user : JSON.stringify(packet.to.user)) + 
-                " (resolved to: " + targetUser + ")");
+        var resolvedUser = findLocalUser(packet.to.user);
+        targetUser = (typeof resolvedUser === 'string') ? resolvedUser : 
+                    (resolvedUser && resolvedUser.alias) ? resolvedUser.alias : packet.to.user;
+        logEvent("Challenge targeted to: " + packet.to.user + " (resolved to: " + targetUser + ")");
     }
     
     // Create new game record
@@ -2777,8 +2770,16 @@ function processInboundChallenge(packet) {
         challenge_id: challengeId,
         status: "pending",
         players: {
-            white: packet.color === "white" ? packet.from : { user: targetUser, bbs: getLocalBBS("name"), address: getLocalBBS("address") },
-            black: packet.color === "black" ? packet.from : { user: targetUser, bbs: getLocalBBS("name"), address: getLocalBBS("address") }
+            white: packet.color === "white" ? packet.from : { 
+                user: targetUser, 
+                bbs: getLocalBBS("name"), 
+                address: getLocalBBS("address") 
+            },
+            black: packet.color === "black" ? packet.from : { 
+                user: targetUser, 
+                bbs: getLocalBBS("name"), 
+                address: getLocalBBS("address") 
+            }
         },
         fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         turn: "white",
@@ -2810,7 +2811,7 @@ function processInboundChallenge(packet) {
     
     body += "\r\nGo to the Chess menu and select 'View/Respond to InterBBS Challenges' to accept or decline.";
     
-    // Verify notification path before sending
+    // ADDED: Verify notification path before sending
     verifyNotificationPath();
     sendAchessNotification(notificationTarget, subject, body);
     
