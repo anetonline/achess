@@ -176,26 +176,18 @@ function isUserMatch(user1, user2) {
 
 function registerCurrentPlayer() {
     try {
-        // First ensure the directory exists
-        ensureGamesDir();
-        
-        // Simple local implementation
+        // Ensure the player database directory exists
         var dbFile = js.exec_dir + "players_db.json";
-        var players = {};
         
-        // Read existing player database or create new one
+        // Create a new players database if it doesn't exist
+        var players = {};
         if (file_exists(dbFile)) {
             var f = new File(dbFile);
             if (f.open("r")) {
                 try {
-                    var content = f.readAll().join("");
-                    if (content && content.trim() !== "") {
-                        players = JSON.parse(content);
-                    } else {
-                        players = {}; // Empty file, initialize as empty object
-                    }
+                    players = JSON.parse(f.read());
                 } catch(e) {
-                    players = {}; // Error parsing JSON, initialize as empty object
+                    players = {};
                 }
                 f.close();
             }
@@ -203,7 +195,7 @@ function registerCurrentPlayer() {
         
         var localAddr = getLocalBBS("address");
         
-        // Ensure the node entry exists in the players object
+        // Initialize array for this BBS if it doesn't exist
         if (!players[localAddr]) {
             players[localAddr] = [];
         }
@@ -228,19 +220,18 @@ function registerCurrentPlayer() {
                 losses: 0,
                 draws: 0
             });
-            console.print("\r\nAdded " + user.alias + " to player database.\r\n");
         }
         
-        // Save the updated player database
+        // Save the updated database
         var f = new File(dbFile);
         if (f.open("w+")) {
             f.write(JSON.stringify(players, null, 2));
             f.close();
-        } else {
-            console.print("\r\nWARNING: Could not write to player database file!\r\n");
         }
+        
     } catch(e) {
-        console.print("\r\nError in registerCurrentPlayer: " + e.toString() + "\r\n");
+        // Log error but don't crash
+        logEvent("Error in registerCurrentPlayer: " + e.toString());
     }
 }
 
@@ -1140,21 +1131,23 @@ function playVsComputer(loadFromSave, saveObj) {
                                     " computer opponent has defeated you.\x01n";
                 }
                 
-                // Record the score
+                // Record the score - wrap in try/catch to prevent errors
                 try {
                     safeAddScore(user.alias, result, "Computer (" + difficulty + ")");
                 } catch(e) {
-                    logEvent("Error in score update: " + e.toString());
+                    // Log the error but don't let it crash the game
+                    log("Error in score update: " + e.toString());
                 }
             } else {
                 gameResult = "\x01h\x01y*** DRAW! ***\x01n";
                 victoryMessage = "\x01h\x01yThe game ended in a draw.\x01n";
                 
-                // Record draw
+                // Record draw - wrap in try/catch to prevent errors
                 try {
                     safeAddScore(user.alias, "Draw", "Computer (" + difficulty + ")");
                 } catch(e) {
-                    logEvent("Error in score update: " + e.toString());
+                    // Log the error but don't let it crash the game
+                    log("Error in score update: " + e.toString());
                 }
             }
             
@@ -1170,7 +1163,11 @@ function playVsComputer(loadFromSave, saveObj) {
             
             // Delete game from saved games if it exists
             if (gameId) {
-                deleteComputerGame(gameId);
+                try {
+                    deleteComputerGame(gameId);
+                } catch(e) {
+                    // Silently continue if deletion fails
+                }
             }
             
             console.gotoxy(11, 25);
