@@ -1,4 +1,7 @@
 // AChess InterBBS Utility
+// A-Net Online BBS
+// StingRay
+
 try {
     load("sbbsdefs.js");
 
@@ -26,6 +29,17 @@ try {
     };
 } catch(e) {
     print("Error initializing: " + e.message);
+}
+
+// Score files and path
+var SCORES_FILE = ACHESS_DATA_DIR + "scores.json";
+var SCORES_SUMMARY = ACHESS_DATA_DIR + "scores_summary.json";
+
+function getJsexecPath() {
+    var exe = system.exec_dir + "jsexec";
+    var isWindows = (system.platform && system.platform.toLowerCase().indexOf("win") === 0);
+    if (isWindows) exe += ".exe";
+    return exe;
 }
 
 // Player Database Functions
@@ -197,28 +211,6 @@ function isUserMatch(user1, user2) {
     return equalsIgnoreCase(user1, user2);
 }
 
-function isUserMatch(user1, user2) {
-    return equalsIgnoreCase(user1, user2);
-}
-
-function isUserMatch(user1, user2) {
-    return equalsIgnoreCase(user1, user2);
-}
-
-function getLocalUsers() {
-    var users = [];
-    
-    try {
-        if (typeof system !== "undefined" && system.data_dir) {
-
-        }
-    } catch (e) {
-        logEvent("Could not access user database: " + e.message);
-    }
-    
-    return users;
-}
-
 function findLocalUser(targetUser) {
     if (!targetUser) return null;
     
@@ -244,28 +236,38 @@ function findLocalUser(targetUser) {
 function requestPlayerListFromAllNodes() {
     var nodes = loadInterBBSNodes();
     var successCount = 0;
-    
+
     print("Requesting player lists from all known nodes...\r\n");
-    
+
+    // Ensure outbound directory exists (best-effort)
+    try { if (typeof mkpath === 'function') mkpath(INTERBBS_OUT_DIR); } catch (e) {}
+
+    var myAddr = getLocalBBS("address");
+
     for (var address in nodes) {
-        // Skip requesting from ourselves
-        if (address === getLocalBBS("address")) {
+        if (!nodes.hasOwnProperty(address)) continue;
+
+        var node = nodes[address];
+        if (!node || !node.address) continue;
+
+        // Skip requesting from ourselves (case-insensitive)
+        if (equalsIgnoreCase(address, myAddr) || equalsIgnoreCase(node.address, myAddr)) {
             print("Skipping self (" + address + ")\r\n");
             continue;
         }
-        
-        var node = nodes[address];
-        print("Requesting from: " + node.name + " (" + address + ")\r\n");
-        
+
+        print("Requesting from: " + (node.name || "Unknown") + " (" + address + ")\r\n");
+
         // Generate a unique request ID for each node
         var requestId = "req_" + address.replace(/[^A-Za-z0-9]/g, "_") + "_" + time() + "_" + Math.floor(Math.random() * 10000);
-        
+
+        // Use chess_* type to match achess.js and updated inbound handler
         var requestPacket = {
-            type: "player_list_request",
+            type: "chess_player_list_request",
             request_id: requestId,
             from: {
                 bbs: getLocalBBS("name"),
-                address: getLocalBBS("address"),
+                address: myAddr,
                 user: (typeof user !== 'undefined' && user && user.alias) ? user.alias : "SYSTEM"
             },
             to: {
@@ -274,24 +276,24 @@ function requestPlayerListFromAllNodes() {
             },
             created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
         };
-        
+
         // Create a unique filename that won't collide with other requests
         var fname = "achess_playerlist_req_" + requestId + ".json";
         var path = INTERBBS_OUT_DIR + fname;
-        
+
         var f = new File(path);
         if (f.open("w+")) {
             f.write(JSON.stringify(requestPacket, null, 2));
             f.close();
             successCount++;
             print("  Request packet created: " + fname + "\r\n");
-            logEvent("Sent player list request to " + node.name + " (" + address + ")");
+            logEvent("Sent chess player list request to " + (node.name || "Unknown") + " (" + address + ")");
         } else {
-            print("  ERROR: Could not create request packet for " + node.name + "\r\n");
-            logEvent("ERROR: Failed to create player list request for " + node.name);
+            print("  ERROR: Could not create request packet for " + (node.name || "Unknown") + "\r\n");
+            logEvent("ERROR: Failed to create chess player list request for " + (node.name || "Unknown") + " (" + address + ")");
         }
     }
-    
+
     print("Sent " + successCount + " player list requests\r\n");
     return successCount;
 }
@@ -411,31 +413,26 @@ function repeatChar(char, count) {
 function logEvent(message) {
     var timestamp = strftime("%Y-%m-%d %H:%M:%S", time());
     var logEntry = timestamp + " - " + message + "\r\n";
-    
     var f = new File(INTERBBS_LOG_FILE);
     if (f.open("a")) {
         f.write(logEntry);
         f.close();
     }
-    
     print("LOG: " + message + "\r\n");
 }
 
 function getLocalBBS(field) {
-    var bbsConfig = (typeof myBBS !== 'undefined' && myBBS) ? myBBS : 
-                   (CONFIG && CONFIG.bbs) ? CONFIG.bbs : DEFAULT_CONFIG.bbs;
-    
-    if (bbsConfig && bbsConfig[field]) return bbsConfig[field];
-    
+    if (myBBS && myBBS[field]) return myBBS[field];
     switch(field) {
         case "name": return system.name || "Unknown BBS";
         case "address": 
-            // Try multiple sources for the address
-            if (bbsConfig && bbsConfig.address) return bbsConfig.address;
+            if (myBBS && myBBS.address) return myBBS.address;
             if (system.fidonet_addr) return system.fidonet_addr;
-            return "777:777/4"; // Your known address as fallback
+            return "777:777/4";
         case "bbs": return system.name || "Unknown BBS";
-        case "operator": return system.operator || "SysOp";
+        case "operator":
+        case "sysop": // alias
+            return system.operator || "SysOp";
         default: return "";
     }
 }
@@ -896,34 +893,6 @@ function reorderNodesWithLC(nodes, lcAddress) {
     return validateAndDeduplicateNodes(orderedNodes);
 }
 
-// Helper function to reorder nodes with LC as first entry
-function reorderNodesWithLC(nodes, lcAddress) {
-    var orderedNodes = {};
-    
-    // Add LC first if it exists
-    if (nodes[lcAddress]) {
-        orderedNodes[lcAddress] = nodes[lcAddress];
-    } else {
-        // Create LC entry if missing
-        orderedNodes[lcAddress] = {
-            name: getLocalBBS("name"),
-            address: lcAddress,
-            sysop: getLocalBBS("operator"),
-            location: "",
-            last_seen: strftime("%Y-%m-%dT%H:%M:%SZ", time())
-        };
-    }
-    
-    // Add all other nodes
-    for (var address in nodes) {
-        if (address !== lcAddress) {
-            orderedNodes[address] = nodes[address];
-        }
-    }
-    
-    return validateAndDeduplicateNodes(orderedNodes);
-}
-
 // Load InterBBS games
 function loadInterBBSGames() {
     return loadJSONFile(INTERBBS_GAMES_FILE, []);
@@ -1321,90 +1290,6 @@ function improvedAutomaticCleanup(nodes, duplicates, addressMismatches, masterNo
     return cleaned;
 }
 
-// Enhanced automaticCleanup to handle address mismatches
-function automaticCleanup(nodes, duplicates, addressMismatches) {
-    var cleaned = {};
-    var removed = [];
-    var corrected = [];
-    
-    // Copy all nodes first
-    for (var addr in nodes) {
-        cleaned[addr] = nodes[addr];
-    }
-    
-    // Process duplicates
-    for (var i = 0; i < duplicates.length; i++) {
-        var dup = duplicates[i];
-        
-        if (dup.type === "duplicate_name") {
-            // Keep the most recently seen node
-            var latest = null;
-            var latestTime = 0;
-            
-            for (var j = 0; j < dup.addresses.length; j++) {
-                var addr = dup.addresses[j];
-                var node = nodes[addr];
-                var nodeTime = new Date(node.last_seen).getTime();
-                
-                if (!latest || nodeTime > latestTime) {
-                    latest = addr;
-                    latestTime = nodeTime;
-                }
-            }
-            
-            // Remove all except the latest
-            for (var j = 0; j < dup.addresses.length; j++) {
-                var addr = dup.addresses[j];
-                if (addr !== latest) {
-                    delete cleaned[addr];
-                    removed.push(addr + " (" + nodes[addr].name + ")");
-                    logEvent("Removed duplicate node: " + addr + " (" + nodes[addr].name + ")");
-                }
-            }
-        }
-    }
-    
-    // Process address mismatches (only if we have the master list to reference)
-    if (addressMismatches) {
-        for (var i = 0; i < addressMismatches.length; i++) {
-            var mismatch = addressMismatches[i];
-            
-            // Get the node data
-            var nodeData = cleaned[mismatch.current];
-            if (!nodeData) continue;
-            
-            // Remove the node with incorrect address
-            delete cleaned[mismatch.current];
-            
-            // Add it back with the correct address from master list
-            cleaned[mismatch.master] = {
-                name: nodeData.name,
-                address: mismatch.master, // Use the correct address
-                sysop: nodeData.sysop || "",
-                location: nodeData.location || "",
-                last_seen: nodeData.last_seen
-            };
-            
-            corrected.push(mismatch.current + " -> " + mismatch.master + " (" + nodeData.name + ")");
-            logEvent("Corrected address for " + nodeData.name + ": " + mismatch.current + " -> " + mismatch.master);
-        }
-    }
-    
-    print("Removed " + removed.length + " duplicate entries:\r\n");
-    for (var i = 0; i < removed.length; i++) {
-        print("  - " + removed[i] + "\r\n");
-    }
-    
-    if (corrected.length > 0) {
-        print("\r\nCorrected " + corrected.length + " address mismatches:\r\n");
-        for (var i = 0; i < corrected.length; i++) {
-            print("  - " + corrected[i] + "\r\n");
-        }
-    }
-    
-    return cleaned;
-}
-
 function findDuplicateNodes(nodes) {
     var duplicates = [];
     var seenNames = {};
@@ -1437,55 +1322,6 @@ function findDuplicateNodes(nodes) {
     }
     
     return duplicates;
-}
-
-function automaticCleanup(nodes, duplicates) {
-    var cleaned = {};
-    var removed = [];
-    
-    // Copy all nodes first
-    for (var addr in nodes) {
-        cleaned[addr] = nodes[addr];
-    }
-    
-    // Process duplicates
-    for (var i = 0; i < duplicates.length; i++) {
-        var dup = duplicates[i];
-        
-        if (dup.type === "duplicate_name") {
-            // Keep the most recently seen node
-            var latest = null;
-            var latestTime = 0;
-            
-            for (var j = 0; j < dup.addresses.length; j++) {
-                var addr = dup.addresses[j];
-                var node = nodes[addr];
-                var nodeTime = new Date(node.last_seen).getTime();
-                
-                if (!latest || nodeTime > latestTime) {
-                    latest = addr;
-                    latestTime = nodeTime;
-                }
-            }
-            
-            // Remove all except the latest
-            for (var j = 0; j < dup.addresses.length; j++) {
-                var addr = dup.addresses[j];
-                if (addr !== latest) {
-                    delete cleaned[addr];
-                    removed.push(addr + " (" + nodes[addr].name + ")");
-                    logEvent("Removed duplicate node: " + addr + " (" + nodes[addr].name + ")");
-                }
-            }
-        }
-    }
-    
-    print("Removed " + removed.length + " duplicate entries:\r\n");
-    for (var i = 0; i < removed.length; i++) {
-        print("  - " + removed[i] + "\r\n");
-    }
-    
-    return cleaned;
 }
 
 // Enhanced validateNodeRegistration with strict address checking
@@ -1569,8 +1405,10 @@ function validateNodeRegistration(nodeInfo) {
 
 function isLeagueCoordinator() {
     var myAddress = getLocalBBS("address");
-    var coordinatorAddress = CONFIG.league_coordinator || "777:777/1"; // Set your LC address
-    return myAddress === coordinatorAddress;
+    var coord = (CONFIG.league && CONFIG.league.coordinator)
+        ? CONFIG.league.coordinator
+        : "777:777/1"; // default/fallback
+    return myAddress === coord;
 }
 
 // Load players database
@@ -1700,56 +1538,29 @@ function updateSummaryScoresFromRecent(scores) {
 }
 
 function runInterBBSScoreUpdate() {
-    // Check if the InterBBS script exists
-    var ibbsScript = js.exec_dir + "achess_ibbs.js";
-    if (file_exists(ibbsScript)) {
-        try {
-            // Check if running on Windows
-            var isWindows = (system.platform && system.platform.toLowerCase().indexOf("win") === 0);
-            
-            if (isWindows) {
+    try {
+        var ibbsScript = js.exec_dir + "achess_ibbs.js";
+        if (!file_exists(ibbsScript)) return false;
 
-                var scriptPath = ibbsScript.replace(/\//g, "\\");
-                system.exec("\"" + scriptPath + "\" outbound", true);
-            } else {
+        var jsexec = getJsexecPath();
+        var q = function(p) { return "\"" + String(p).replace(/"/g, "\\\"") + "\""; };
 
-                system.exec(ibbsScript + " outbound", true);
-            }
-            logEvent("Triggered InterBBS score update");
-        } catch(e) {
-            // Log error but don't let it crash the game
-            logEvent("Error triggering InterBBS score update: " + e.toString());
-
-            return false;
+        var isWindows = (system.platform && system.platform.toLowerCase().indexOf("win") === 0);
+        if (isWindows) {
+            jsexec = jsexec.replace(/\//g, "\\");
+            ibbsScript = ibbsScript.replace(/\//g, "\\");
         }
-    }
-    return true;
-}
 
-function logEvent(message) {
-    var logFile = js.exec_dir + "achess.log";
-    var f = new File(logFile);
-    if (f.open("a")) {
-        f.writeln(strftime("%Y-%m-%d %H:%M:%S", time()) + " - " + message);
-        f.close();
+        system.exec(q(jsexec) + " " + q(ibbsScript) + " outbound", true);
+        logEvent("Triggered InterBBS score update");
+        return true;
+    } catch (e) {
+        logEvent("Error triggering InterBBS score update: " + e.toString());
+        return false;
     }
 }
 
-function getLocalBBS(field) {
-    if (myBBS && myBBS[field]) return myBBS[field];
-    switch(field) {
-        case "name": return system.name || "Unknown BBS";
-        case "address": 
-            // Try multiple sources for the address
-            if (myBBS && myBBS.address) return myBBS.address;
-            if (system.fidonet_addr) return system.fidonet_addr;
-            return "777:777/4"; // Your known address as fallback
-        case "bbs": return system.name || "Unknown BBS";
-        case "operator": return system.operator || "SysOp";
-        default: return "";
-    }
-}
-
+// addScore()
 function addScore(username, result, vs) {
     var scores = readScores();
     if (!Array.isArray(scores)) scores = [];
@@ -1763,7 +1574,6 @@ function addScore(username, result, vs) {
     while (scores.length > 30) scores.shift();
     writeScores(scores);
     updateSummaryScoresFromRecent(scores);
-    updateScoreFiles();
 }
 
 function readScores() {
@@ -1829,12 +1639,6 @@ function chess_readScores() {
     
     // If we got here, it's neither format or empty
     return {};
-}
-
-function updateScoreFiles() {
-    writeScoresANS();
-    writeScoresASC();
-    convertScoresAnsToAnsi();
 }
 
 // Function to add a new node to the master list (LC only)
@@ -2163,58 +1967,57 @@ function convertGamesToSummary(games) {
 }
 
 function processInboundPlayerListRequest(packet) {
-    if (!packet.from) {
+    if (!packet || !packet.from) {
         logEvent("Invalid player list request - missing from field");
         return false;
     }
-    
-    logEvent("Received player list request from " + packet.from.bbs + " (" + packet.from.user + ")");
-    
-    // Get all local players, not just active ones
-    var activePlayers = [];
-    try {
-        for (var i = 1; i <= system.lastuser; i++) {
-            var u = new User(i);
-            if (u.name && !u.deleted && !u.locked) {
-                // Include all valid users, regardless of activity
-                activePlayers.push({
-                    username: u.alias,
-                    lastSeen: strftime("%Y-%m-%d", u.stats.laston_date),
-                    totalCalls: u.stats.total_calls
-                });
-            }
-        }
-        
-        logEvent("Gathered " + activePlayers.length + " local players for response");
-    } catch (e) {
-        logEvent("Error getting local users: " + e.message);
+
+    logEvent("Received chess player list request from " + (packet.from.bbs || "unknown"));
+
+    // Only return registered chess players (those who actually opened the chess game)
+    var playerDB = loadPlayersDB();               // players_db.json structure
+    var myAddr = getLocalBBS("address");
+    var localPlayers = Array.isArray(playerDB[myAddr]) ? playerDB[myAddr] : [];
+
+    // Normalize the payload to a stable schema
+    var responsePlayers = [];
+    for (var i = 0; i < localPlayers.length; i++) {
+        var p = localPlayers[i] || {};
+        if (!p.username) continue;
+        responsePlayers.push({
+            username: p.username,
+            lastSeen: p.lastSeen || strftime("%Y-%m-%d", time()),
+            gamesPlayed: p.gamesPlayed || 0,
+            wins: p.wins || 0,
+            losses: p.losses || 0,
+            draws: p.draws || 0
+        });
     }
-    
-    // Send response packet
+
+    // Build response packet
     var responsePacket = {
-        type: "player_list_response", 
-        request_id: packet.request_id || "auto_" + time(), // Echo back request ID if present
+        type: "chess_player_list_response",
+        request_id: packet.request_id || ("resp_" + time()),
         from: {
             bbs: getLocalBBS("name"),
-            address: getLocalBBS("address"),
+            address: myAddr,
             user: "SYSTEM"
         },
         to: packet.from,
-        players: activePlayers,
+        players: responsePlayers,
         created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
     };
-    
-    // Generate a unique filename with timestamp and request ID
-    var uniquePart = packet.request_id || ("resp_" + Math.floor(Math.random() * 100000));
-    var filename = "achess_playerlist_resp_" + uniquePart + "_" + time() + ".json";
+
+    // File name for outbound response
+    var uniquePart = responsePacket.request_id + "_" + time();
+    var filename = "achess_playerlist_resp_" + uniquePart + ".json";
     var filepath = INTERBBS_OUT_DIR + filename;
-    
+
     if (saveJSONFile(filepath, responsePacket)) {
-        logEvent("Sent player list response to " + packet.from.bbs + " with " + activePlayers.length + " players");
-        logEvent("Response file: " + filename);
+        logEvent("Sent chess player list response to " + (packet.from.bbs || "unknown") + " with " + responsePlayers.length + " players");
         return true;
     } else {
-        logEvent("Failed to send player list response - could not create file");
+        logEvent("Failed to send chess player list response - could not create file");
         return false;
     }
 }
@@ -2439,6 +2242,12 @@ function processInboundPacket(packet) {
         case "node_registry_update":
             result = processInboundNodeRegistryUpdate(packet);
             break;
+        case "chess_player_list_request":
+            result = processInboundPlayerListRequest(packet);
+            break;
+        case "chess_player_list_response":
+            result = processInboundPlayerListResponse(packet);
+            break;
         default:
             logEvent("Unknown packet type: " + packet.type);
             return true; // Still return true to remove from inbound
@@ -2660,9 +2469,9 @@ function processInboundLeagueReset(packet) {
         logEvent("Invalid league reset packet - missing required fields");
         return false;
     }
-    
-    // Verify this is from the designated league coordinator
-    var myCoordinator = CONFIG.league_coordinator || getLocalBBS("address");
+    var myCoordinator = (CONFIG.league && CONFIG.league.coordinator)
+        ? CONFIG.league.coordinator
+        : getLocalBBS("address");
     if (packet.league_coordinator !== myCoordinator) {
         logEvent("League reset rejected - not from authorized coordinator: " + packet.league_coordinator);
         return false;
@@ -3158,51 +2967,70 @@ function processInboundScoreUpdate(packet) {
         logEvent("Invalid score update - missing required fields");
         return false;
     }
-    
-    var scores = loadScores();
+
     var bbs_key = packet.from.bbs + " (" + packet.from.address + ")";
-    
-    if (!scores[bbs_key]) {
-        scores[bbs_key] = {};
+
+    // Normalize incoming into a username -> {wins, losses, draws, rating} map
+    function addOrSet(map, username, wins, losses, draws) {
+        if (!username) return;
+        // Use case-insensitive merge within a single packet (avoid dup keys like "StingRay"/"stingray")
+        var finalKey = null;
+        for (var k in map) {
+            if (isUserMatch(k, username)) { finalKey = k; break; }
+        }
+        if (!finalKey) finalKey = username;
+
+        map[finalKey] = {
+            wins: wins || 0,
+            losses: losses || 0,
+            draws: draws || 0,
+            rating: 1200 + ((wins || 0) * 25) - ((losses || 0) * 15)
+        };
     }
-    
-    // Handle both array and object format scores with case-insensitive username handling
+
+    var incomingMap = {};
+
     if (Array.isArray(packet.scores)) {
+        // Array format: [{name|user, wins, losses, draws, rating?}, ...]
         for (var i = 0; i < packet.scores.length; i++) {
-            var score = packet.scores[i];
-            var username = score.name || score.user;
-            
-            // Check if this user already exists with different case
-            var existingUser = null;
-            for (var existingUsername in scores[bbs_key]) {
-                if (isUserMatch(existingUsername, username)) {
-                    existingUser = existingUsername;
-                    break;
-                }
-            }
-            
-            // CRITICAL CHANGE: Add to existing scores rather than overwrite
-            var finalUsername = existingUser || username;
-            if (!scores[bbs_key][finalUsername]) {
-                scores[bbs_key][finalUsername] = {wins: 0, losses: 0, draws: 0, rating: 1200};
-            }
-            
-            scores[bbs_key][finalUsername].wins += (score.wins || 0);
-            scores[bbs_key][finalUsername].losses += (score.losses || 0);
-            scores[bbs_key][finalUsername].draws += (score.draws || 0);
-            scores[bbs_key][finalUsername].rating = 1200 + 
-                (scores[bbs_key][finalUsername].wins * 25) - 
-                (scores[bbs_key][finalUsername].losses * 15);
+            var s = packet.scores[i] || {};
+            var uname = s.name || s.user;
+            addOrSet(incomingMap, uname, s.wins, s.losses, s.draws);
+        }
+    } else if (packet.scores && typeof packet.scores === "object") {
+        // Object format: { "User": {wins, losses, draws, rating?}, ... }
+        for (var uname in packet.scores) {
+            if (!packet.scores.hasOwnProperty(uname)) continue;
+            var s = packet.scores[uname] || {};
+            addOrSet(incomingMap, uname, s.wins, s.losses, s.draws);
         }
     } else {
-        // Handle object format if needed
+        logEvent("Unsupported scores format in packet");
+        return false;
     }
-    
+
+    // Load current summary (can be {}), replace this BBS snapshot idempotently
+    var scores = loadScores(); // returns a summary object keyed by "BBS (addr)"
+    scores[bbs_key] = incomingMap;
+
+    // Save to scores.json (kept backward compatible) 
     saveScores(scores);
+
+    // Also save to scores_summary.json so achess.js can render remote data
+    try {
+        var f = new File(SCORES_SUMMARY);
+        if (f.open("w+")) {
+            f.write(JSON.stringify(scores, null, 2));
+            f.close();
+        }
+    } catch (e) {
+        logEvent("Error writing scores_summary.json: " + e.toString());
+    }
+
     updateNodeInfo(packet.from);
     updatePlayerInfo(packet.from);
-    
-    logEvent("Updated scores from " + packet.from.bbs);
+
+    logEvent("Replaced scores for " + bbs_key + " (" + Object.keys(incomingMap).length + " players)");
     return true;
 }
 
@@ -3395,25 +3223,16 @@ function processInboundNodeRegistryUpdate(packet) {
     return true;
 }
 
-// Helper function to send InterBBS message
-function sendInterBBSMessage(targetUser, fromInfo, subject, messageBody) {
+function sendLocalMail(targetUser, fromInfo, subject, messageBody) {
     try {
-        
         var msgbase = new MsgBase("mail");
         if (!msgbase.open()) {
             logEvent("ERROR: Could not open mail message base");
             return false;
         }
-        
-        var targetAlias = targetUser;
-        var targetNumber = 0;
-        
-        // Handle both object and string format for targetUser
-        if (typeof targetUser === 'object' && targetUser.alias) {
-            targetAlias = targetUser.alias;
-            targetNumber = targetUser.number || 0;
-        }
-        
+        var targetAlias = typeof targetUser === 'object' && targetUser.alias ? targetUser.alias : targetUser;
+        var targetNumber = typeof targetUser === 'object' && targetUser.number ? targetUser.number : 0;
+
         var hdr = {
             to: targetAlias,
             to_ext: targetNumber,
@@ -3422,12 +3241,9 @@ function sendInterBBSMessage(targetUser, fromInfo, subject, messageBody) {
             when_written_time: time(),
             when_imported_time: time()
         };
-        
         var success = msgbase.save_msg(hdr, messageBody);
         msgbase.close();
-        
         return success;
-        
     } catch (e) {
         logEvent("ERROR: Exception sending message: " + e.toString());
         return false;
