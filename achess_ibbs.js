@@ -1548,7 +1548,34 @@ function isLeagueCoordinator() {
 
 // Load players database
 function loadInterBBSPlayers() {
-    return loadJSONFile(ACHESS_DATA_DIR + "players_db.json", {});
+    var dbFile = js.exec_dir + "players_db.json";
+    console.print("\r\nAttempting to load player database from: " + dbFile + "\r\n");
+    
+    if (!file_exists(dbFile)) {
+        console.print("Player database file does not exist, will create new one.\r\n");
+        return {};
+    }
+    
+    var f = new File(dbFile);
+    if (!f.open("r")) {
+        console.print("Could not open player database file for reading.\r\n");
+        return {};
+    }
+    
+    var db;
+    try {
+        var content = f.readAll().join("");
+        console.print("Read file content, length: " + content.length + "\r\n");
+        
+        db = JSON.parse(content);
+        console.print("Successfully parsed player database.\r\n");
+    } catch(e) {
+        console.print("Error parsing player database: " + e.toString() + "\r\n");
+        db = {};
+    }
+    
+    f.close();
+    return db;
 }
 
 // Save players database
