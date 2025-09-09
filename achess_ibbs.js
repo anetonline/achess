@@ -1974,7 +1974,7 @@ function processInboundPlayerListRequest(packet) {
 
     logEvent("Received chess player list request from " + (packet.from.bbs || "unknown"));
 
-    // Only return registered chess players (those who actually opened the chess game)
+    // Only return registered chess players (those who actually opened AChess)
     var playerDB = loadPlayersDB();               // players_db.json structure
     var myAddr = getLocalBBS("address");
     var localPlayers = Array.isArray(playerDB[myAddr]) ? playerDB[myAddr] : [];
@@ -1994,7 +1994,6 @@ function processInboundPlayerListRequest(packet) {
         });
     }
 
-    // Build response packet
     var responsePacket = {
         type: "chess_player_list_response",
         request_id: packet.request_id || ("resp_" + time()),
@@ -2008,9 +2007,7 @@ function processInboundPlayerListRequest(packet) {
         created: strftime("%Y-%m-%dT%H:%M:%SZ", time())
     };
 
-    // File name for outbound response
-    var uniquePart = responsePacket.request_id + "_" + time();
-    var filename = "achess_playerlist_resp_" + uniquePart + ".json";
+    var filename = "achess_playerlist_resp_" + responsePacket.request_id + "_" + time() + ".json";
     var filepath = INTERBBS_OUT_DIR + filename;
 
     if (saveJSONFile(filepath, responsePacket)) {
@@ -2027,53 +2024,66 @@ function processInboundPlayerListResponse(packet) {
         logEvent("Invalid player list response - missing required fields");
         return false;
     }
-    
-    logEvent("Processing player list response from " + packet.from.bbs);
-    
-    // Update BOTH the players database AND the local players DB
+
+    // Detect legacy full-BBS dumps (old behavior):
+    // - very large lists (e.g., > 300)
+    // - entries contain totalCalls but lack chess stats
+    function looksLikeLegacyFullList(players) {
+        if (!Array.isArray(players) || players.length === 0) return false;
+        var big = players.length > 300;
+        var p0 = players[0] || {};
+        var hasTotalCalls = typeof p0.totalCalls !== "undefined";
+        var lacksChessStats = typeof p0.wins === "undefined" &&
+                              typeof p0.losses === "undefined" &&
+                              typeof p0.draws === "undefined" &&
+                              typeof p0.gamesPlayed === "undefined";
+        return big || (hasTotalCalls && lacksChessStats);
+    }
+
+    if (looksLikeLegacyFullList(packet.players)) {
+        logEvent("Ignoring legacy full-BBS player list response from " + packet.from.bbs +
+                 " (" + packet.players.length + " entries) — awaiting node update.");
+        // Consume packet (return true) but do not write into players_db.json
+        return true;
+    }
+
+    // Normal path: save chess-registered players only
     var players = loadInterBBSPlayers();
     var playerDB = loadPlayersDB();
     var nodeAddress = packet.from.address || packet.from.bbs;
-    
-    // Clear existing players for this node and add new ones in both databases
+
     players[nodeAddress] = [];
     playerDB[nodeAddress] = [];
-    
-    if (Array.isArray(packet.players)) {
-        for (var i = 0; i < packet.players.length; i++) {
-            var player = packet.players[i];
-            var playerEntry = {
-                username: player.username,
-                lastSeen: player.lastSeen || strftime("%Y-%m-%d", time()),
-                gamesPlayed: player.gamesPlayed || 0,
-                wins: player.wins || 0,
-                losses: player.losses || 0,
-                draws: player.draws || 0
-            };
-            
-            // Add to both databases
-            players[nodeAddress].push(playerEntry);
-            playerDB[nodeAddress].push(playerEntry);
-        }
-        
-        logEvent("Updated player list from " + packet.from.bbs + " (" + packet.players.length + " players)");
+
+    for (var i = 0; i < packet.players.length; i++) {
+        var player = packet.players[i] || {};
+        if (!player.username) continue;
+        var entry = {
+            username: player.username,
+            lastSeen: player.lastSeen || strftime("%Y-%m-%d", time()),
+            gamesPlayed: player.gamesPlayed || 0,
+            wins: player.wins || 0,
+            losses: player.losses || 0,
+            draws: player.draws || 0
+        };
+        players[nodeAddress].push(entry);
+        playerDB[nodeAddress].push(entry);
     }
-    
+
     saveInterBBSPlayers(players);
     savePlayersDB(playerDB);
     updateNodeInfo(packet.from);
-    
-    // Notify the requesting user about the received player list
+
+    // Notify the requesting user
     if (packet.to && packet.to.user) {
         var targetUser = findLocalUser(packet.to.user);
-        
-        sendAchessNotification(targetUser, 
-            "Player List Updated from " + packet.from.bbs, 
+        sendAchessNotification(targetUser || "ALL",
+            "Player List Updated from " + packet.from.bbs,
             "Player list received from " + packet.from.bbs + "\r\n" +
             "Found " + packet.players.length + " players.\r\n\r\n" +
             "Return to InterBBS Challenge to see the updated list.");
     }
-    
+
     return true;
 }
 
