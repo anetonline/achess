@@ -166,6 +166,14 @@ function isUserMatch(user1, user2) {
     return equalsIgnoreCase(user1, user2);
 }
 
+function isUserMatch(user1, user2) {
+    return equalsIgnoreCase(user1, user2);
+}
+
+function isUserMatch(user1, user2) {
+    return equalsIgnoreCase(user1, user2);
+}
+
 function getLocalUsers() {
     var users = [];
     
@@ -200,7 +208,7 @@ function findLocalUser(targetUser) {
         // Fallback: return the username as-is for notification purposes
         return targetUser;
         
-    } catch (e) {
+    } catch(e) {
         logEvent("Error in findLocalUser: " + e.toString());
         return targetUser; // Return the original username as fallback
     }
@@ -1548,7 +1556,7 @@ function saveInterBBSPlayers(players) {
     return saveJSONFile(ACHESS_DATA_DIR + "players_db.json", players);
 }
 
-// Update player information when processing packets - UPDATED: Case-insensitive
+// Update player information when processing packets
 function updatePlayerInfo(playerInfo) {
     if (!playerInfo || !playerInfo.user || !playerInfo.bbs) {
         return; // Skip if incomplete player info
@@ -2157,7 +2165,6 @@ function processInboundPlayerListRequest(packet) {
     }
 }
 
-// Enhanced function to properly process player list responses from ALL nodes
 function processInboundPlayerListResponse(packet) {
     if (!packet.from || !packet.players) {
         logEvent("Invalid player list response - missing required fields");
@@ -2958,12 +2965,6 @@ function processInboundMessage(packet) {
     // Handle both direct packet format and data-wrapped format
     var messageData = packet.data || packet;
 
-    // Log what we actually received
-    logEvent("Message packet structure: " + Object.keys(packet).join(", "));
-    if (packet.data) {
-        logEvent("Message data keys: " + Object.keys(messageData).join(", "));
-    }
-
     // Check for required fields - handle multiple packet formats
     var hasFromInfo = false;
     var hasMessageBody = false;
@@ -2973,13 +2974,12 @@ function processInboundMessage(packet) {
         messageData.from ||
         (messageData.from_user && (messageData.from_bbs || messageData.bbs)) ||
         (messageData.from_user && messageData.from_address) ||
-        (messageData.from_user && messageData.address) ||
-        (messageData.from_user && messageData.bbs && messageData.address)
+        (messageData.from_user && messageData.address)
     ) {
         hasFromInfo = true;
     }
 
-    // Check for message body - UPDATED to be more lenient
+    // Check for message body - be more lenient
     if (
         (messageData.message && messageData.message.trim() !== "") ||
         (messageData.body && messageData.body.trim() !== "") ||
@@ -2988,7 +2988,7 @@ function processInboundMessage(packet) {
         hasMessageBody = true;
     }
 
-    // SPECIAL CASE: If it's a valid packet structure but no meaningful content, treat as a "ping" message
+    // Special case for ping messages
     if (!hasMessageBody && hasFromInfo && messageData.type === "message") {
         logEvent("Processing empty message packet as ping/status message");
         hasMessageBody = true; // Allow empty messages through
@@ -2996,17 +2996,10 @@ function processInboundMessage(packet) {
 
     if (!hasFromInfo || !hasMessageBody) {
         logEvent("ERROR: Invalid message packet - missing required fields");
-        logEvent("Available fields: " + Object.keys(messageData).join(', '));
-
-        // Log the actual values for debugging
-        for (var key in messageData) {
-            logEvent("  " + key + " = '" + messageData[key] + "'");
-        }
-
         return false;
     }
 
-    // Extract from information - handle both formats - UPDATED
+    // Extract from information - handle both formats
     var fromUser, fromBBS, fromAddr;
     if (messageData.from && typeof messageData.from === 'object') {
         fromUser = messageData.from.user || messageData.from_user;
@@ -3014,7 +3007,7 @@ function processInboundMessage(packet) {
         fromAddr = messageData.from.address || messageData.from_address || messageData.address;
     } else {
         fromUser = messageData.from_user;
-        fromBBS = messageData.from_bbs || messageData.bbs; // Now includes 'bbs' fallback
+        fromBBS = messageData.from_bbs || messageData.bbs;
         fromAddr = messageData.from_address || messageData.address;
     }
     
@@ -3037,7 +3030,7 @@ function processInboundMessage(packet) {
         return true; // Return true so we don't reprocess the packet, but don't add to local messages
     }
 
-    // Only default to ALL if explicitly set, not if blank
+    // Process the target user (case-insensitive)
     if (
         typeof targetAlias === "string" &&
         targetAlias.trim() !== "" &&
@@ -3046,17 +3039,13 @@ function processInboundMessage(packet) {
         var resolvedUser = findLocalUser(targetAlias);
         if (resolvedUser && typeof resolvedUser === 'object' && resolvedUser.alias) {
             targetUser = resolvedUser.alias;
-            logEvent("Message targeted to: " + targetAlias + " (resolved to: " + targetUser + ")");
         } else if (resolvedUser && typeof resolvedUser === 'string') {
             targetUser = resolvedUser;
-            logEvent("Message targeted to: " + targetAlias + " (using fallback: " + targetUser + ")");
         } else {
             targetUser = targetAlias;
-            logEvent("Message targeted to: " + targetAlias + " (using original alias)");
         }
     } else {
         targetUser = "ALL";
-        logEvent("Message has no specific target user, sending to ALL");
     }
 
     var message = {
@@ -3067,7 +3056,7 @@ function processInboundMessage(packet) {
         to_bbs: getLocalBBS("name"),
         to_addr: getLocalBBS("address"),
         subject: messageData.subject || "InterBBS Message",
-        body: messageData.message || messageData.body || messageData.subject || "[Empty Message/Ping]", // UPDATED: fallback to subject or ping
+        body: messageData.message || messageData.body || messageData.subject || "[Empty Message]",
         created: messageData.created || strftime("%Y-%m-%d %H:%M:%S", time()),
         read: false
     };
@@ -3076,7 +3065,7 @@ function processInboundMessage(packet) {
     messages.push(message);
     writeMessages(messages);
 
-    // Send AChess notification about new message
+    // Send notification
     var subject = "New InterBBS Message!";
     var body =
         "You have received a new InterBBS message!\r\n\r\n" +
@@ -3084,11 +3073,11 @@ function processInboundMessage(packet) {
         "Subject: " + message.subject + "\r\n\r\n" +
         "Go to the Chess menu and select 'Read InterBBS Messages' to view the message.";
     
-    // ADDED: Verify notification path before sending
+    // Verify notification path exists before sending
     verifyNotificationPath();
     sendAchessNotification(targetUser, subject, body);
 
-    // Update player info - handle both packet formats
+    // Update player info
     var playerInfo = {
         user: fromUser,
         bbs: fromBBS,
@@ -3096,13 +3085,6 @@ function processInboundMessage(packet) {
     };
     updatePlayerInfo(playerInfo);
 
-    logEvent(
-        "Received message from " +
-        message.from_user +
-        " @ " +
-        message.from_bbs +
-        " (target: " + targetUser + ")"
-    );
     return true;
 }
 
@@ -3415,6 +3397,7 @@ function processInterBBSInboundPacket(filename) {
         
         var success = false;
         
+        // Process packet based on type
         switch (packet.type.toLowerCase()) {
             case "challenge":
                 success = processInboundChallenge(packet);
@@ -3462,53 +3445,16 @@ function processInterBBSInboundPacket(filename) {
         
         if (success) {
             logEvent("Successfully processed packet: " + filename);
-            // Move to processed folder
-            var processedDir = INTERBBS_IN_DIR.replace(/inbound/i, "processed");
-            if (!file_exists(processedDir)) {
-                try {
-                    mkdir(processedDir);
-                } catch (e) {
-                    logEvent("Could not create processed directory: " + e.toString());
-                }
+            var f = new File(filename);
+            if (f.exists) {
+                f.remove();
+                logEvent("Deleted processed packet: " + filename);
             }
-            var newPath = processedDir + "/" + file_getname(filename);
-            try {
-                file_rename(filename, newPath);
-                logEvent("Moved processed packet to: " + newPath);
-            } catch (e) {
-                logEvent("Could not move processed packet: " + e.toString());
-                // If move fails, just delete the original
-                try {
-                    var f = new File(filename);
-                    if (f.exists) {
-                        f.remove();
-                        logEvent("Deleted processed packet: " + filename);
-                    }
-                } catch (e2) {
-                    logEvent("Could not delete processed packet: " + e2.toString());
-                }
-            }
+            return true;
         } else {
             logEvent("ERROR: Failed to process packet: " + filename);
-            // Move to error folder for manual review
-            var errorDir = INTERBBS_IN_DIR.replace(/inbound/i, "error");
-            if (!file_exists(errorDir)) {
-                try {
-                    mkdir(errorDir);
-                } catch (e) {
-                    logEvent("Could not create error directory: " + e.toString());
-                }
-            }
-            var errorPath = errorDir + "/" + file_getname(filename);
-            try {
-                file_rename(filename, errorPath);
-                logEvent("Moved error packet to: " + errorPath);
-            } catch (e) {
-                logEvent("Could not move error packet: " + e.toString());
-            }
+            return false;
         }
-        
-        return success;
         
     } catch (e) {
         logEvent("ERROR: Exception processing packet " + filename + ": " + e.toString());
