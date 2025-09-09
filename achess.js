@@ -24,6 +24,13 @@ var MESSAGES_FILE = js.exec_dir + "messages.json";
 var NODE_FILE = js.exec_dir + "chess_nodes.ini";
 var INTERBBS_GAMES_FILE = js.exec_dir + "interbbs_games.json";
 
+function getJsexecPath() {
+    var exe = system.exec_dir + "jsexec";
+    var isWindows = (system.platform && system.platform.toLowerCase().indexOf("win") === 0);
+    if (isWindows) exe += ".exe";
+    return exe;
+}
+
 var files = "ABCDEFGH";
 var ranks = "87654321";
 var startX = 11, startY = 1, squareW = 5, squareH = 2, centerOffsetX = 2, centerOffsetY = 1;
@@ -118,12 +125,13 @@ function getLocalBBS(field) {
     switch(field) {
         case "name": return system.name || "Unknown BBS";
         case "address": 
-            // Try multiple sources for the address
             if (myBBS && myBBS.address) return myBBS.address;
             if (system.fidonet_addr) return system.fidonet_addr;
-            return "777:777/4"; // Your known address as fallback
+            return "777:777/4";
         case "bbs": return system.name || "Unknown BBS";
-        case "operator": return system.operator || "SysOp";
+        case "operator":
+        case "sysop": // alias
+            return system.operator || "SysOp";
         default: return "";
     }
 }
@@ -168,10 +176,6 @@ function findUserIgnoreCase(targetUser, userList) {
 
 function isUserMatch(user1, user2) {
     return equalsIgnoreCase(user1, user2);
-}
-
-function isUserMatch(user1, user2) {
-    return String(user1).toLowerCase() === String(user2).toLowerCase();
 }
 
 function registerCurrentPlayer() {
@@ -270,7 +274,7 @@ function requestPlayerList(nodeAddress) {
     var requestId = "req_" + Math.floor(Math.random() * 100000) + "_" + time();
     
     var requestPacket = {
-        type: "player_list_request",
+        type: "chess_player_list_request", // Changed from player_list_request
         request_id: requestId,
         from: {
             bbs: getLocalBBS("name"),
@@ -361,6 +365,63 @@ function savePlayersDB(db) {
         return true;
     } else {
         console.print("ERROR: Could not open player database file for writing!\r\n");
+        return false;
+    }
+}
+
+// function to prepare our player database for sharing
+function preparePlayerListResponse(requestingBBS) {
+    // Get our local players
+    var myAddr = getLocalBBS("address");
+    var db = loadPlayersDB();
+    
+    // Get only the players for this BBS
+    var localPlayers = db[myAddr] || [];
+    
+    // Format them for response
+    var response = {
+        type: "chess_player_list_response",
+        from: {
+            bbs: getLocalBBS("name"),
+            address: myAddr,
+        },
+        to: {
+            bbs: requestingBBS.bbs,
+            address: requestingBBS.address,
+        },
+        created: strftime("%Y-%m-%dT%H:%M:%SZ", time()),
+        players: localPlayers
+    };
+    
+    return response;
+}
+
+//function to process player list responses
+function processPlayerListResponse(responseData) {
+    if (!responseData || !responseData.from || !responseData.from.address || !responseData.players) {
+        console.print("\r\nInvalid player list response received.\r\n");
+        return false;
+    }
+    
+    var sourceAddress = responseData.from.address;
+    var sourceBBS = responseData.from.bbs;
+    var players = responseData.players;
+    
+    console.print("\r\nReceived player list from " + sourceBBS + " (" + sourceAddress + ")\r\n");
+    console.print("Processing " + players.length + " chess players...\r\n");
+    
+    // Load our database
+    var db = loadPlayersDB();
+    
+    // Create or update the entry for this BBS
+    db[sourceAddress] = players;
+    
+    // Save the updated database
+    if (savePlayersDB(db)) {
+        console.print("Successfully updated player database with players from " + sourceBBS + "\r\n");
+        return true;
+    } else {
+        console.print("Error saving updated player database!\r\n");
         return false;
     }
 }
@@ -679,27 +740,6 @@ function formatMoveWithCapture(moveObj) {
     }
     
     return moveText;
-}
-
-function truncateWithAnsi(str, maxLength) {
-    var result = "";
-    var visibleLength = 0;
-    var i = 0;
-    
-    while (i < str.length && visibleLength < maxLength) {
-        if (str[i] === '\x01' && i + 1 < str.length) {
-
-            result += str[i] + str[i + 1];
-            i += 2;
-        } else {
-
-            result += str[i];
-            visibleLength++;
-            i++;
-        }
-    }
-    
-    return result;
 }
 
 // Hard AI - Uses minimax with depth 2
@@ -1136,7 +1176,7 @@ function playVsComputer(loadFromSave, saveObj) {
                     safeAddScore(user.alias, result, "Computer (" + difficulty + ")");
                 } catch(e) {
                     // Log the error but don't let it crash the game
-                    log("Error in score update: " + e.toString());
+                    logEvent("Error in score update: " + e.toString());
                 }
             } else {
                 gameResult = "\x01h\x01y*** DRAW! ***\x01n";
@@ -1147,7 +1187,7 @@ function playVsComputer(loadFromSave, saveObj) {
                     safeAddScore(user.alias, "Draw", "Computer (" + difficulty + ")");
                 } catch(e) {
                     // Log the error but don't let it crash the game
-                    log("Error in score update: " + e.toString());
+                    logEvent("Error in score update: " + e.toString());
                 }
             }
             
@@ -1227,25 +1267,6 @@ function getMaterialScore(capturedWhite, capturedBlack) {
     if (score > 0) return "+" + score + " (White)";
     if (score < 0) return score + " (Black)";
     return "Even";
-}
-
-var squareCoords = {};
-for (var r = 0; r < 8; r++)
-    for (var f = 0; f < 8; f++) {
-        var square = files[f] + ranks[r];
-        var x = startX + f * squareW + centerOffsetX;
-        var y = startY + r * squareH + centerOffsetY;
-        squareCoords[square] = { x: x, y: y };
-    }
-
-function getNewBoard() {
-    return new Chess();
-}
-
-function convertSyncAnsi(text) {
-    return text.replace(/(?:\x01|\u263A)([a-z])/g, function(match, code) {
-        return SBBS_TO_ANSI[code] || '';
-    });
 }
 
 function getNewBoard() {
@@ -2750,16 +2771,31 @@ function updateSummaryScoresFromRecent(scores) {
         // Silently ignore if function not available
     }
 }
+
 function runInterBBSScoreUpdate() {
-    // Check if the InterBBS script exists
     var ibbsScript = js.exec_dir + "achess_ibbs.js";
-    if (file_exists(ibbsScript)) {
-        try {
-            system.exec(ibbsScript + " outbound", true);
-            logEvent("Triggered InterBBS score update");
-        } catch(e) {
-            logEvent("Error triggering InterBBS score update: " + e.toString());
+    if (!file_exists(ibbsScript)) return;
+
+    try {
+        var jsexec = getJsexecPath();
+        // Quote on all platforms to be safe with spaces
+        var q = function(p) { return "\"" + String(p).replace(/"/g, "\\\"") + "\""; };
+
+        // Windows needs backslashes; *nix is fine with forward slashes
+        var isWindows = (system.platform && system.platform.toLowerCase().indexOf("win") === 0);
+        if (isWindows) {
+            jsexec = jsexec.replace(/\//g, "\\");
+            ibbsScript = ibbsScript.replace(/\//g, "\\");
         }
+
+        system.exec(q(jsexec) + " " + q(ibbsScript) + " outbound", true);
+        if (myBBS && myBBS.auto_process) {
+            system.exec(q(jsexec) + " " + q(ibbsScript) + " inbound", true);
+        }
+
+        logEvent("Triggered InterBBS score update (outbound" + ((myBBS && myBBS.auto_process) ? "+inbound" : "") + ")");
+    } catch (e) {
+        logEvent("Error triggering InterBBS score update: " + e.toString());
     }
 }
 
@@ -2771,14 +2807,67 @@ function logEvent(message) {
         f.close();
     }
 }
+
 function chess_readScores() {
     if (!file_exists(SCORES_SUMMARY)) return {};
     var f = new File(SCORES_SUMMARY);
     if (!f.open("r")) return {};
-    var obj = JSON.parse(f.readAll().join(""));
+    var obj;
+    try {
+        obj = JSON.parse(f.readAll().join(""));
+    } catch(e) {
+        obj = {};
+    }
     f.close();
-    return obj;
+
+    // Legacy flat: { "User": {wins,losses,draws,rating}, ... }
+    var looksFlat = true;
+    for (var k in obj) {
+        var v = obj[k];
+        if (!(v && typeof v === "object" && ("wins" in v || "losses" in v || "draws" in v))) {
+            looksFlat = false;
+            break;
+        }
+    }
+    if (looksFlat) return obj;
+
+    // New per-BBS format: { "BBS (addr)": { "User": {wins,losses,draws,rating}, ... }, ... }
+    var merged = {};
+
+    function mergeUser(name, stats) {
+        if (!name || !stats) return;
+        // Case-insensitive merge
+        var finalKey = null;
+        for (var existing in merged) {
+            if (isUserMatch(existing, name)) { finalKey = existing; break; }
+        }
+        if (!finalKey) finalKey = name;
+
+        if (!merged[finalKey]) merged[finalKey] = { wins: 0, losses: 0, draws: 0, rating: 1200 };
+        merged[finalKey].wins += stats.wins || 0;
+        merged[finalKey].losses += stats.losses || 0;
+        merged[finalKey].draws += stats.draws || 0;
+        // rating recomputed after aggregation
+    }
+
+    for (var bbsKey in obj) {
+        var players = obj[bbsKey];
+        if (!players || typeof players !== "object") continue;
+        for (var uname in players) {
+            if (!players.hasOwnProperty(uname)) continue;
+            mergeUser(uname, players[uname]);
+        }
+    }
+
+    // Recompute ratings uniformly: 1200 + 25*w - 15*l
+    for (var name in merged) {
+        var s = merged[name];
+        s.rating = 1200 + (s.wins * 25) - (s.losses * 15);
+    }
+
+    return merged;
 }
+
 function chess_showScores() {
     updateScoreFiles();
     if (file_exists(SCORES_ANS)) {
@@ -2789,6 +2878,7 @@ function chess_showScores() {
         console.getkey();
     }
 }
+
 function renderScoresAnsi() {
     updateScoreFiles();
     if (file_exists(SCORES_ANS)) {
@@ -2798,6 +2888,7 @@ function renderScoresAnsi() {
     console.print("\r\n[No high scores yet! Press any key]");
     console.getkey();
 }
+
 function renderScoresAsc() {
     updateScoreFiles();
     if (file_exists(SCORES_ASC)) {
@@ -2953,6 +3044,7 @@ function ensureGamesDir() {
     var dir = js.exec_dir + "games";
     if (!file_exists(dir)) mkdir(dir);
 }
+
 function ensurePvPGamesFileIsArray() {
     ensureGamesDir();
     if (!file_exists(PVP_GAMES_FILE)) {
@@ -3000,14 +3092,6 @@ function saveAllPvPGames(games) {
         file.write(JSON.stringify(games, null, 2));
         file.close();
     }
-}
-
-function arrayFindIndex(arr, predicate) {
-    if (!Array.isArray(arr)) return -1;
-    for (var i = 0; i < arr.length; i++) {
-        if (predicate(arr[i], i, arr)) return i;
-    }
-    return -1;
 }
 
 function savePvPGame(game) {
@@ -3093,16 +3177,46 @@ function showScrollerMenu(items, title, getDisplayText) {
 
 // === CHESS GAME MENU AND LOGIC ===
 
+// Helper for sleep in ms for polling loop (global)
+function sleepMS(ms) {
+    var end = (new Date()).getTime() + ms;
+    while ((new Date()).getTime() < end && bbs.online && !js.terminated)
+        mswait(50);
+}
+
+// Global header/status helpers so they can be used both in chess_menu() and playVsPlayer()
+function showHeader() {
+    console.gotoxy(1, 2);
+    console.print("\x01w\x01h   A-NET Synchronet Chess v.21\r\n\r\n");
+    console.print("\x01w    Logged in as: " + user.alias + " (user #" + user.number + ")\r\n\r\n");
+}
+
+function showStatusMessage(message) {
+    console.clear();
+    showHeader();
+    console.print("\x01r\x01h" + message + "\x01n\r\n\r\n");
+    console.print("Press any key to return to the menu...\r\n");
+    console.getkey();
+}
+
+// Global board-draw helper used by both chess_menu() flows and playVsPlayer()
+function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
+    drawChessBoard(chess, turnText, checkText, playerNames, savedMoves);
+}
+
 function chess_menu() {
     load("sbbsdefs.js");
     require("dd_lightbar_menu.js", "DDLightbarMenu");
-menu
+
     // Ensure player database file exists before registering player
     ensurePlayerDBExists();
     registerCurrentPlayer();
 
     var WIDTH = console.screen_columns;
     var HEIGHT = console.screen_rows;
+
+    // Inbound IBBS poll timer (added)
+    var _lastInboundPoll = 0;
 
     function showIntroScreen() {
         var introFile = js.exec_dir + "achess.ans";
@@ -3126,37 +3240,67 @@ menu
         return text + (padLength > 0 ? repeatSpace(padLength) : '');
     }
 
-    function showHeader() {
-        console.gotoxy(1, 2);
-        console.print("\x01w\x01h   A-NET Synchronet Chess v.21\r\n\r\n");
-        console.print("\x01w    Logged in as: " + user.alias + " (user #" + user.number + ")\r\n\r\n");
-    }
-
-    function showStatusMessage(message) {
-        console.clear();
-        showHeader();
-        console.print("\x01r\x01h" + message + "\x01n\r\n\r\n");
-        console.print("Press any key to return to the menu...\r\n");
-        console.getkey();
-    }
-
-    function showBoard(chess, playerNames, turnText, checkText) {
-        drawChessBoard(chess, turnText, checkText, playerNames);
-    }
-
     // New helper function to ensure player DB exists
     function ensurePlayerDBExists() {
         var dbFile = js.exec_dir + "players_db.json";
         if (!file_exists(dbFile)) {
+            var initialDB = {};
+            var myAddr = getLocalBBS("address");
+            initialDB[myAddr] = [];
+
             var f = new File(dbFile);
             if (f.open("w+")) {
-                f.write("{}");
+                f.write(JSON.stringify(initialDB));
                 f.close();
-                console.print("\r\nCreated new player database.\r\n");
+                console.print("\r\nCreated new chess player database.\r\n");
             } else {
-                console.print("\r\nWARNING: Could not create player database file!\r\n");
+                console.print("\r\nWARNING: Could not create chess player database file!\r\n");
             }
         }
+    }
+
+    function updatePlayerStats(username, result) {
+        var db = loadPlayersDB();
+        var myAddr = getLocalBBS("address");
+        
+        if (!db[myAddr]) db[myAddr] = [];
+        
+        // Find the player
+        var playerIndex = -1;
+        for (var i = 0; i < db[myAddr].length; i++) {
+            if (isUserMatch(db[myAddr][i].username, username)) {
+                playerIndex = i;
+                break;
+            }
+        }
+        
+        // Create player entry if not found
+        if (playerIndex === -1) {
+            db[myAddr].push({
+                username: username,
+                lastSeen: strftime("%Y-%m-%d", time()),
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0
+            });
+            playerIndex = db[myAddr].length - 1;
+        }
+        
+        // Update stats
+        db[myAddr][playerIndex].gamesPlayed++;
+        db[myAddr][playerIndex].lastSeen = strftime("%Y-%m-%d", time());
+        
+        if (result.toLowerCase() === "win") {
+            db[myAddr][playerIndex].wins++;
+        } else if (result.toLowerCase() === "loss") {
+            db[myAddr][playerIndex].losses++;
+        } else if (result.toLowerCase() === "draw") {
+            db[myAddr][playerIndex].draws++;
+        }
+        
+        // Save updates
+        savePlayersDB(db);
     }
 
     // --- PvP Start/Resume/Join ---
@@ -3228,13 +3372,351 @@ menu
         });
         if (!chosen) return;
         playVsPlayer(true, chosen);
-}
+    }
 
-// Helper for sleep in ms for polling loop
-function sleepMS(ms) {
-    var end = (new Date()).getTime() + ms;
-    while ((new Date()).getTime() < end && bbs.online && !js.terminated)
-        mswait(50);
+    // --- MAIN MENU ---
+    showIntroScreen();
+
+    // Menu items based on InterBBS availability
+    var menu_items = [
+        "\x01hNew Game vs Computer",
+        "\x01hNew Game vs Player",
+        "\x01hJoin/Resume Ongoing Match", 
+        "\x01hLoad Saved Game",
+        "\x01hView High Scores",
+        "\x01hRead Notifications"
+    ];
+
+    // Add InterBBS options only if enabled
+    if (isInterBBSEnabled()) {
+        menu_items.push("\x01hRead InterBBS Messages");
+        menu_items.push("\x01hSend InterBBS Message");
+        menu_items.push("\x01hChallenge Remote Player (InterBBS)");
+        menu_items.push("\x01hView/Move in My InterBBS Games");
+    }
+
+    menu_items.push("\x01hQuit");
+
+    var menu_width = 44;
+    var menu_x = 2;
+    var menu_y = 7;
+    var max_height = HEIGHT - menu_y - 2;
+    var menu_height = Math.min(menu_items.length + 2, max_height);
+
+    function formatAlertLine(text, width) {
+        var clean = text.replace(/\x01.\x01./g, '').replace(/\x01./g, '');
+        if (clean.length > width) {
+            clean = clean.substring(0, width - 3) + "...";
+        }
+        return clean + repeatSpace(width - clean.length);
+    }
+
+    var running = true;
+    var lastRefresh = time();
+    while (bbs.online && running && !js.terminated) {
+        // Periodic inbound IBBS processing (added)
+        if (myBBS && myBBS.auto_process) {
+            var now = time();
+            if (now - _lastInboundPoll >= 30) {
+                try {
+                    var ibbsScript = js.exec_dir + "achess_ibbs.js";
+                    if (file_exists(ibbsScript)) {
+                        var jsexec = getJsexecPath();
+                        var isWindows = (system.platform && system.platform.toLowerCase().indexOf("win") === 0);
+                        if (isWindows) {
+                            jsexec = "\"" + jsexec.replace(/\//g, "\\") + "\"";
+                            ibbsScript = "\"" + ibbsScript.replace(/\//g, "\\") + "\"";
+                        }
+                        system.exec(jsexec + " " + ibbsScript + " inbound", true);
+                    }
+                } catch (e) {
+                    // ignore errors to avoid disrupting UI
+                }
+                _lastInboundPoll = now;
+            }
+        }
+
+        console.clear();
+        showHeader();
+
+        var unreadNotes = getMyUnreadAchessNotifications();
+        if (unreadNotes.length) {
+            var alertLine = formatAlertLine(
+                "You have " + unreadNotes.length + " new notification(s)!",
+                menu_width - 4
+            );
+            
+            var flashChar = (Math.floor(time() * 2) % 2 === 0) ? "\x01r\x01h*\x01n" : "\x01r*\x01n";
+            console.print("\x01h\x01c" + alertLine + " " + flashChar + flashChar + "\x01n\r\n");
+        } else {
+            console.print(repeatSpace(menu_width) + "\r\n");
+        }
+
+        var menu = new DDLightbarMenu(menu_x, menu_y, menu_width + 4, menu_height);
+
+        for (var i = 0; i < menu_items.length; i++) {
+            menu.Add(padMenuText(menu_items[i], menu_width), i.toString());
+        }
+        menu.colors.itemColor = "\x01k\x01h";
+        menu.colors.selectedItemColor = "\x01g\x01h";
+        menu.colors.borderColor = "\x01g";
+        menu.colors.scrollbarBGColor = "\x01g";
+        menu.colors.scrollbarFGColor = "\x01w";
+        menu.borderEnabled = true;
+        menu.scrollbarEnabled = true;
+        menu.AddAdditionalQuitKeys("qQ\x1b");
+
+        var selected = menu.GetVal(true, 1000);
+        
+        if (typeof selected !== "string") {
+            var currentTime = time();
+            if (currentTime - lastRefresh < 2) {
+                running = false;
+                continue;
+            } else {
+                lastRefresh = currentTime;
+                continue;
+            }
+        }
+
+        lastRefresh = time();
+
+        // Create menu actions based on current menu structure
+        var menuActions = [
+            "computer",     // 0 - New Game vs Computer
+            "player",       // 1 - New Game vs Player  
+            "join",         // 2 - Join/Resume Ongoing Match
+            "load",         // 3 - Load Saved Game
+            "scores",       // 4 - View High Scores
+            "notifications" // 5 - Read Notifications
+        ];
+
+        // Add InterBBS actions only if enabled (must match menu_items order)
+        if (isInterBBSEnabled()) {
+            menuActions.push("ibbs_messages");    // 6 - Read InterBBS Messages
+            menuActions.push("ibbs_send");        // 7 - Send InterBBS Message  
+            menuActions.push("ibbs_challenge");   // 8 - Challenge Remote Player
+            menuActions.push("ibbs_games");       // 9 - View/Move in My InterBBS Games
+        }
+
+        menuActions.push("quit");  // Last item - Quit
+
+        // Handle menu selection using the selected value from menu.GetVal()
+        var selectedIndex = parseInt(selected, 10);
+        if (selectedIndex >= 0 && selectedIndex < menuActions.length) {
+            var action = menuActions[selectedIndex];
+            
+            switch(action) {
+                case "computer":
+                    console.clear();
+                    showHeader();
+                    deleteGame(user.number);
+                    playVsComputer(false, null);
+                    break;
+                case "player":
+                    console.clear();
+                    showHeader();
+                    startNewPvPGame();
+                    break;
+                case "join":
+                    console.clear(); 
+                    showHeader();
+                    joinOrResumePvPMatch();
+                    break;
+                case "load":
+                    console.clear();
+                    showHeader();
+                    
+                    var computerGames = getUserComputerGames(user.number);
+                    var pvpGames = getUserPvPGames(user.alias);
+                    
+                    // Also check for legacy single-save
+                    var legacySave = loadGame(user.number);
+                    if (legacySave) {
+                        // Convert legacy save to new format if needed
+                        legacySave.id = "legacy_" + user.number + "_" + (new Date().getTime());
+                        saveComputerGame(legacySave);
+                        deleteGame(user.number);
+                        computerGames = getUserComputerGames(user.number); // Refresh the list
+                    }
+                    
+                    // Combine all games for display
+                    var allGames = [];
+                    for (var i = 0; i < computerGames.length; i++) {
+                        allGames.push({
+                            type: "computer",
+                            game: computerGames[i]
+                        });
+                    }
+                    for (var i = 0; i < pvpGames.length; i++) {
+                        allGames.push({
+                            type: "pvp",
+                            game: pvpGames[i]
+                        });
+                    }
+                    
+                    if (allGames.length === 0) {
+                        showStatusMessage("No saved games found.");
+                        break;
+                    }
+                    
+                    // Sort games by timestamp if available
+                    allGames.sort(function(a, b) {
+                        var timeA = a.game.timestamp || 0;
+                        var timeB = b.game.timestamp || 0;
+                        return timeB - timeA; // Newest first
+                    });
+                    
+                    // Show games with load/delete options
+                    while (true) {
+                        var chosen = showScrollerMenu(allGames, "Select a Saved Game (L=Load, D=Delete, Q=Quit)", function(item, i) {
+                            var g = item.game;
+                            var gameType = "";
+                            
+                            if (item.type === "computer") {
+                                var diffText = g.difficulty ? g.difficulty.charAt(0).toUpperCase() + g.difficulty.slice(1) : "Easy";
+                                gameType = "vs Computer (" + diffText + ")";
+                            } else {
+                                gameType = g.white + " vs " + g.black;
+                            }
+                            
+                            var datePart = "";
+                            if (g.timestamp) {
+                                var d = new Date(g.timestamp);
+                                datePart = " | " + d.toLocaleDateString() + " " + d.toLocaleTimeString();
+                            }
+                            
+                            return format("[%d] %s%s", i + 1, gameType, datePart);
+                        });
+                        
+                        if (!chosen) break; // User quit
+                        
+                        // Ask what to do with selected game
+                        console.clear();
+                        showHeader();
+                        
+                        var g = chosen.game;
+                        var gameType = "";
+                        if (chosen.type === "computer") {
+                            var diffText = g.difficulty ? g.difficulty.charAt(0).toUpperCase() + g.difficulty.slice(1) : "Easy";
+                            gameType = "vs Computer (" + diffText + ")";
+                        } else {
+                            gameType = g.white + " vs " + g.black;
+                        }
+                        
+                        console.print("\r\n\x01h\x01cSelected Game: \x01w" + gameType + "\x01n\r\n");
+                        if (g.timestamp) {
+                            var d = new Date(g.timestamp);
+                            console.print("\x01cSaved: \x01w" + d.toLocaleDateString() + " " + d.toLocaleTimeString() + "\x01n\r\n");
+                        }
+                        
+                        console.print("\r\n\x01h\x01g[L]\x01n Load Game");
+                        console.print("  \x01h\x01r[D]\x01n Delete Game");
+                        console.print("  \x01h\x01c[B]\x01n Back to List");
+                        console.print("  \x01h\x01w[Q]\x01n Quit\r\n\r\n");
+                        console.print("Choose an option: ");
+                        
+                        var action2 = console.getkey().toUpperCase();
+                        
+                        if (action2 === "Q") {
+                            break; // Exit to main menu
+                        } else if (action2 === "B") {
+                            continue; // Back to game list
+                        } else if (action2 === "D") {
+                            // Confirm deletion
+                            console.print("\r\n\r\n\x01h\x01rAre you sure you want to delete this saved game? (Y/N): \x01n");
+                            var confirm = console.getkey().toUpperCase();
+                            
+                            if (confirm === "Y") {
+                                // Delete the game
+                                if (chosen.type === "computer") {
+                                    deleteComputerGame(g.id);
+                                } else {
+                                    deletePvPGame(g.id);
+                                }
+                                
+                                // Remove from our local array
+                                for (var j = 0; j < allGames.length; j++) {
+                                    if (allGames[j].game.id === g.id) {
+                                        allGames.splice(j, 1);
+                                        break;
+                                    }
+                                }
+                                
+                                console.print("\r\n\x01h\x01gGame deleted successfully!\x01n");
+                                console.print("\r\nPress any key to continue...");
+                                console.getkey();
+                                
+                                // If no games left, exit
+                                if (allGames.length === 0) {
+                                    showStatusMessage("No more saved games.");
+                                    break;
+                                }
+                                continue; // Back to game list
+                            } else {
+                                console.print("\r\n\x01cDeletion cancelled.\x01n");
+                                console.print("\r\nPress any key to continue...");
+                                console.getkey();
+                                continue; // Back to action menu for same game
+                            }
+                        } else if (action2 === "L") {
+                            // Load the game - Pass raw saved game data
+                            var selectedGame = chosen.game;
+                            if (!selectedGame || !selectedGame.fen) {
+                                showStatusMessage("This saved game cannot be loaded.");
+                                break;
+                            }
+                            
+                            console.clear();
+                            showHeader();
+                            
+                            if (chosen.type === "computer") {
+                                playVsComputer(true, selectedGame);
+                            } else {
+                                playVsPlayer(true, selectedGame);
+                            }
+                            break; // Exit after playing
+                        }
+                    }
+                    break;
+                case "scores":
+                    console.clear();
+                    showHeader();
+                    renderScoresAnsi();
+                    console.print("\r\nPress any key to return to the menu...\r\n");
+                    console.getkey();
+                    break;
+                case "notifications":
+                    console.clear();
+                    showHeader();
+                    showAchessNotificationsInteractive();
+                    break;
+                case "ibbs_messages":
+                    console.clear();
+                    showHeader();
+                    showMessages();
+                    break;
+                case "ibbs_send":
+                    console.clear();
+                    showHeader();
+                    sendInterBBSMessage();
+                    break;
+                case "ibbs_challenge":
+                    console.clear();
+                    showHeader();
+                    interbbsChallenge();
+                    break;
+                case "ibbs_games":
+                    console.clear();
+                    showHeader();
+                    interbbsListGamesAndMove();
+                    break;
+                case "quit":
+                    running = false;
+                    break;
+            }
+        }
+    }
 }
 
 // === PvP Play Function (real-time aware) ===
@@ -3371,53 +3853,53 @@ function playVsPlayer(resume, saveObj) {
                 continue;
             } else {
                 var waitMsg = "It's not your turn in this game.";
-                var promptY = 23;
+                var promptY2 = 23;
                 
                 while (bbs.online && !js.terminated) {
-                    console.gotoxy(1, promptY - 1);
+                    console.gotoxy(1, promptY2 - 1);
                     console.cleartoeol();
-                    console.gotoxy(1, promptY);
+                    console.gotoxy(1, promptY2);
                     console.cleartoeol();
                     console.print(waitMsg + " (Q to quit)");
                     
-                    var key = console.inkey(0.1);
-                    if (key && key.toUpperCase() === "Q") {
+                    var key2 = console.inkey(0.1);
+                    if (key2 && key2.toUpperCase() === "Q") {
                         showStatusMessage("You exited the game. You can resume from the menu.");
                         return;
                     }
                     sleepMS(1000);
-                    var updated = getPvPGameById(game.id);
-                    if (!updated || updated.finished) {
+                    var updated2 = getPvPGameById(game.id);
+                    if (!updated2 || updated2.finished) {
                         showStatusMessage("Game ended or deleted.");
                         return;
                     }
-                    if (updated.turn === myColor || updated.finished) {
+                    if (updated2.turn === myColor || updated2.finished) {
                         // Rebuild chess instance with move history
-                        var newChess = new Chess();
-                        if (updated.moves && updated.moves.length > 0) {
-                            for (var i = 0; i < updated.moves.length; i++) {
+                        var newChess2 = new Chess();
+                        if (updated2.moves && updated2.moves.length > 0) {
+                            for (var k = 0; k < updated2.moves.length; k++) {
                                 try {
-                                    newChess.move(updated.moves[i]);
+                                    newChess2.move(updated2.moves[k]);
                                 } catch(e) {
-                                    newChess = new Chess(updated.fen);
+                                    newChess2 = new Chess(updated2.fen);
                                     break;
                                 }
                             }
                         } else {
-                            newChess = new Chess(updated.fen);
+                            newChess2 = new Chess(updated2.fen);
                         }
                         
                         game = {
-                            id: updated.id,
-                            mode: updated.mode,
-                            board: newChess,
-                            fen: updated.fen,
-                            turn: updated.turn,
-                            moves: updated.moves || [],
-                            white: updated.white,
-                            black: updated.black,
-                            realTime: !!updated.realTime,
-                            finished: !!updated.finished
+                            id: updated2.id,
+                            mode: updated2.mode,
+                            board: newChess2,
+                            fen: updated2.fen,
+                            turn: updated2.turn,
+                            moves: updated2.moves || [],
+                            white: updated2.white,
+                            black: updated2.black,
+                            realTime: !!updated2.realTime,
+                            finished: !!updated2.finished
                         };
                         savedMoves = game.moves || [];
                         break;
@@ -3528,334 +4010,6 @@ function playVsPlayer(resume, saveObj) {
         } else {
             game.turn = (game.turn === "white") ? "black" : "white";
             savePvPGame(game);
-        }
-    }
-}
-
-function showBoard(chess, playerNames, turnText, checkText, savedMoves) {
-    drawChessBoard(chess, turnText, checkText, playerNames, savedMoves);
-}
-
-    // --- MAIN MENU ---
-    showIntroScreen();
-
-    // Menu items based on InterBBS availability
-    var menu_items = [
-        "\x01hNew Game vs Computer",
-        "\x01hNew Game vs Player",
-        "\x01hJoin/Resume Ongoing Match", 
-        "\x01hLoad Saved Game",
-        "\x01hView High Scores",
-        "\x01hRead Notifications"
-    ];
-
-    // Add InterBBS options only if enabled
-    if (isInterBBSEnabled()) {
-        menu_items.push("\x01hRead InterBBS Messages");
-        menu_items.push("\x01hSend InterBBS Message");
-        menu_items.push("\x01hChallenge Remote Player (InterBBS)");
-        menu_items.push("\x01hView/Move in My InterBBS Games");
-    }
-
-    menu_items.push("\x01hQuit");
-
-    var menu_width = 44;
-    var menu_x = 2;
-    var menu_y = 7;
-    var max_height = HEIGHT - menu_y - 2;
-    var menu_height = Math.min(menu_items.length + 2, max_height);
-
-    function formatAlertLine(text, width) {
-        var clean = text.replace(/\x01.\x01./g, '').replace(/\x01./g, '');
-        if (clean.length > width) {
-            clean = clean.substring(0, width - 3) + "...";
-        }
-        return clean + repeatSpace(width - clean.length);
-    }
-
-    var running = true;
-    var lastRefresh = time();
-    while (bbs.online && running && !js.terminated) {
-        console.clear();
-        showHeader();
-
-        var unreadNotes = getMyUnreadAchessNotifications();
-        if (unreadNotes.length) {
-            var alertLine = formatAlertLine(
-                "You have " + unreadNotes.length + " new notification(s)!",
-                menu_width - 4
-            );
-            
-            var flashChar = (Math.floor(time() * 2) % 2 === 0) ? "\x01r\x01h*\x01n" : "\x01r*\x01n";
-            
-            console.print("\x01h\x01c" + alertLine + " " + flashChar + flashChar + "\x01n\r\n");
-        } else {
-            console.print(repeatSpace(menu_width) + "\r\n");
-        }
-
-        var menu = new DDLightbarMenu(menu_x, menu_y, menu_width + 4, menu_height);
-
-        for (var i = 0; i < menu_items.length; i++) {
-            menu.Add(padMenuText(menu_items[i], menu_width), i.toString());
-        }
-        menu.colors.itemColor = "\x01k\x01h";
-        menu.colors.selectedItemColor = "\x01g\x01h";
-        menu.colors.borderColor = "\x01g";
-        menu.colors.scrollbarBGColor = "\x01g";
-        menu.colors.scrollbarFGColor = "\x01w";
-        menu.borderEnabled = true;
-        menu.scrollbarEnabled = true;
-        menu.AddAdditionalQuitKeys("qQ\x1b");
-
-        var selected = menu.GetVal(true, 1000);
-        
-        if (typeof selected !== "string") {
-            var currentTime = time();
-            if (currentTime - lastRefresh < 2) {
-                running = false;
-                continue;
-            } else {
-                lastRefresh = currentTime;
-                continue;
-            }
-        }
-
-        lastRefresh = time();
-
-        // Create menu actions based on current menu structure
-        var menuActions = [
-            "computer",     // 0 - New Game vs Computer
-            "player",       // 1 - New Game vs Player  
-            "join",         // 2 - Join/Resume Ongoing Match
-            "load",         // 3 - Load Saved Game
-            "scores",       // 4 - View High Scores
-            "notifications" // 5 - Read Notifications
-        ];
-
-        // Add InterBBS actions only if enabled (must match menu_items order)
-        if (isInterBBSEnabled()) {
-            menuActions.push("ibbs_messages");    // 6 - Read InterBBS Messages
-            menuActions.push("ibbs_send");        // 7 - Send InterBBS Message  
-            menuActions.push("ibbs_challenge");   // 8 - Challenge Remote Player
-            menuActions.push("ibbs_games");       // 9 - View/Move in My InterBBS Games
-        }
-
-        menuActions.push("quit");  // Last item - Quit
-
-        // Handle menu selection using the selected value from menu.GetVal()
-        var selectedIndex = parseInt(selected);
-        if (selectedIndex >= 0 && selectedIndex < menuActions.length) {
-            var action = menuActions[selectedIndex];
-            
-            switch(action) {
-                case "computer":
-                    console.clear();
-                    showHeader();
-                    deleteGame(user.number);
-                    playVsComputer(false, null);
-                    break;
-                case "player":
-                    console.clear();
-                    showHeader();
-                    startNewPvPGame();
-                    break;
-                case "join":
-                    console.clear(); 
-                    showHeader();
-                    joinOrResumePvPMatch();
-                    break;
-                case "load":
-                    console.clear();
-                    showHeader();
-                    
-                    var computerGames = getUserComputerGames(user.number);
-                    var pvpGames = getUserPvPGames(user.alias);
-                    
-                    // Also check for legacy single-save
-                    var legacySave = loadGame(user.number);
-                    if (legacySave) {
-                        // Convert legacy save to new format if needed
-                        legacySave.id = "legacy_" + user.number + "_" + (new Date().getTime());
-                        saveComputerGame(legacySave);
-                        deleteGame(user.number);
-                        computerGames = getUserComputerGames(user.number); // Refresh the list
-                    }
-                    
-                    // Combine all games for display
-                    var allGames = [];
-                    for (var i = 0; i < computerGames.length; i++) {
-                        allGames.push({
-                            type: "computer",
-                            game: computerGames[i]
-                        });
-                    }
-                    for (var i = 0; i < pvpGames.length; i++) {
-                        allGames.push({
-                            type: "pvp",
-                            game: pvpGames[i]
-                        });
-                    }
-                    
-                    if (allGames.length === 0) {
-                        showStatusMessage("No saved games found.");
-                        break;
-                    }
-                    
-                    // Sort games by timestamp if available
-                    allGames.sort(function(a, b) {
-                        var timeA = a.game.timestamp || 0;
-                        var timeB = b.game.timestamp || 0;
-                        return timeB - timeA; // Newest first
-                    });
-                    
-                    // Show games with load/delete options
-                    while (true) {
-                        var chosen = showScrollerMenu(allGames, "Select a Saved Game (L=Load, D=Delete, Q=Quit)", function(item, i) {
-                            var g = item.game;
-                            var gameType = "";
-                            
-                            if (item.type === "computer") {
-                                var diffText = g.difficulty ? g.difficulty.charAt(0).toUpperCase() + g.difficulty.slice(1) : "Easy";
-                                gameType = "vs Computer (" + diffText + ")";
-                            } else {
-                                gameType = g.white + " vs " + g.black;
-                            }
-                            
-                            var datePart = "";
-                            if (g.timestamp) {
-                                var d = new Date(g.timestamp);
-                                datePart = " | " + d.toLocaleDateString() + " " + d.toLocaleTimeString();
-                            }
-                            
-                            return format("[%d] %s%s", i + 1, gameType, datePart);
-                        });
-                        
-                        if (!chosen) break; // User quit
-                        
-                        // Ask what to do with selected game
-                        console.clear();
-                        showHeader();
-                        
-                        var g = chosen.game;
-                        var gameType = "";
-                        if (chosen.type === "computer") {
-                            var diffText = g.difficulty ? g.difficulty.charAt(0).toUpperCase() + g.difficulty.slice(1) : "Easy";
-                            gameType = "vs Computer (" + diffText + ")";
-                        } else {
-                            gameType = g.white + " vs " + g.black;
-                        }
-                        
-                        console.print("\r\n\x01h\x01cSelected Game: \x01w" + gameType + "\x01n\r\n");
-                        if (g.timestamp) {
-                            var d = new Date(g.timestamp);
-                            console.print("\x01cSaved: \x01w" + d.toLocaleDateString() + " " + d.toLocaleTimeString() + "\x01n\r\n");
-                        }
-                        
-                        console.print("\r\n\x01h\x01g[L]\x01n Load Game");
-                        console.print("  \x01h\x01r[D]\x01n Delete Game");
-                        console.print("  \x01h\x01c[B]\x01n Back to List");
-                        console.print("  \x01h\x01w[Q]\x01n Quit\r\n\r\n");
-                        console.print("Choose an option: ");
-                        
-                        var action = console.getkey().toUpperCase();
-                        
-                        if (action === "Q") {
-                            break; // Exit to main menu
-                        } else if (action === "B") {
-                            continue; // Back to game list
-                        } else if (action === "D") {
-                            // Confirm deletion
-                            console.print("\r\n\r\n\x01h\x01rAre you sure you want to delete this saved game? (Y/N): \x01n");
-                            var confirm = console.getkey().toUpperCase();
-                            
-                            if (confirm === "Y") {
-                                // Delete the game
-                                if (chosen.type === "computer") {
-                                    deleteComputerGame(g.id);
-                                } else {
-                                    deletePvPGame(g.id);
-                                }
-                                
-                                // Remove from our local array
-                                for (var i = 0; i < allGames.length; i++) {
-                                    if (allGames[i].game.id === g.id) {
-                                        allGames.splice(i, 1);
-                                        break;
-                                    }
-                                }
-                                
-                                console.print("\r\n\x01h\x01gGame deleted successfully!\x01n");
-                                console.print("\r\nPress any key to continue...");
-                                console.getkey();
-                                
-                                // If no games left, exit
-                                if (allGames.length === 0) {
-                                    showStatusMessage("No more saved games.");
-                                    break;
-                                }
-                                continue; // Back to game list
-                            } else {
-                                console.print("\r\n\x01cDeletion cancelled.\x01n");
-                                console.print("\r\nPress any key to continue...");
-                                console.getkey();
-                                continue; // Back to action menu for same game
-                            }
-                        } else if (action === "L") {
-                            // Load the game - Pass raw saved game data
-                            var selectedGame = chosen.game;
-                            if (!selectedGame || !selectedGame.fen) {
-                                showStatusMessage("This saved game cannot be loaded.");
-                                break;
-                            }
-                            
-                            console.clear();
-                            showHeader();
-                            
-                            if (chosen.type === "computer") {
-                                playVsComputer(true, selectedGame);
-                            } else {
-                                playVsPlayer(true, selectedGame);
-                            }
-                            break; // Exit after playing
-                        }
-                    }
-                    break;
-                case "scores":
-                    console.clear();
-                    showHeader();
-                    renderScoresAnsi();
-                    console.print("\r\nPress any key to return to the menu...\r\n");
-                    console.getkey();
-                    break;
-                case "notifications":
-                    console.clear();
-                    showHeader();
-                    showAchessNotificationsInteractive();
-                    break;
-                case "ibbs_messages":
-                    console.clear();
-                    showHeader();
-                    showMessages();
-                    break;
-                case "ibbs_send":
-                    console.clear();
-                    showHeader();
-                    sendInterBBSMessage();
-                    break;
-                case "ibbs_challenge":
-                    console.clear();
-                    showHeader();
-                    interbbsChallenge();
-                    break;
-                case "ibbs_games":
-                    console.clear();
-                    showHeader();
-                    interbbsListGamesAndMove();
-                    break;
-                case "quit":
-                    running = false;
-                    break;
-            }
         }
     }
 }
