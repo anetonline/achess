@@ -1,29 +1,57 @@
 // AChess InterBBS Utility
+try {
+    load("sbbsdefs.js");
 
-load("sbbsdefs.js");
+    // Configuration file location
+    var CONFIG_FILE = js.exec_dir + "bbs.cfg";
+    var ACHESS_DATA_DIR = js.exec_dir;
 
-// Configuration file location
-var CONFIG_FILE = js.exec_dir + "bbs.cfg";
-var ACHESS_DATA_DIR = js.exec_dir;
+    // Default fallback configuration
+    var DEFAULT_CONFIG = {
+        bbs: {
+            name: "A-Net Online",
+            address: "777:777/4",
+            bbs: "A-Net Online BBS",
+            operator: "StingRay"
+        },
+        directories: {
+            inbound: "/sbbs/fido/inbound/",
+            outbound: "/sbbs/fido/outbound/"
+        },
+        mailer: {
+            type: "binkd",
+            poll_packets: true,
+            auto_process: true
+        }
+    };
+} catch(e) {
+    print("Error initializing: " + e.message);
+}
 
-// Default fallback configuration
-var DEFAULT_CONFIG = {
-    bbs: {
-        name: "A-Net Online",
-        address: "777:777/4",
-        bbs: "A-Net Online BBS",
-        operator: "StingRay"
-    },
-    directories: {
-        inbound: "/sbbs/fido/inbound/",
-        outbound: "/sbbs/fido/outbound/"
-    },
-    mailer: {
-        type: "binkd",
-        poll_packets: true,
-        auto_process: true
+// Player Database Functions
+function loadPlayersDB() {
+    var dbFile = js.exec_dir + "players_db.json";
+    if (!file_exists(dbFile)) return {};
+    var f = new File(dbFile);
+    if (!f.open("r")) return {};
+    var db;
+    try {
+        db = JSON.parse(f.readAll().join(""));
+    } catch(e) {
+        db = {};
     }
-};
+    f.close();
+    return db;
+}
+
+function savePlayersDB(db) {
+    var dbFile = js.exec_dir + "players_db.json";
+    var f = new File(dbFile);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(db, null, 2));
+        f.close();
+    }
+}
 
 function registerCurrentPlayer() {
     try {
@@ -2731,8 +2759,16 @@ function processInboundChallenge(packet) {
     // Determine target user with case-insensitive matching
     var targetUser = "PENDING";
     if (packet.to && packet.to.user) {
-        targetUser = findLocalUser(packet.to.user);
-        logEvent("Challenge targeted to: " + packet.to.user + " (resolved to: " + targetUser + ")");
+        // Make sure we're handling strings properly
+        if (typeof packet.to.user === 'string') {
+            targetUser = findLocalUser(packet.to.user);
+        } else if (packet.to.user && typeof packet.to.user === 'object') {
+            // If it's an object, try to get the username property
+            targetUser = packet.to.user.username || packet.to.user.alias || "PENDING";
+        }
+        logEvent("Challenge targeted to: " + (typeof packet.to.user === 'string' ? 
+                                             packet.to.user : JSON.stringify(packet.to.user)) + 
+                " (resolved to: " + targetUser + ")");
     }
     
     // Create new game record
@@ -2774,7 +2810,7 @@ function processInboundChallenge(packet) {
     
     body += "\r\nGo to the Chess menu and select 'View/Respond to InterBBS Challenges' to accept or decline.";
     
-    // ADDED: Verify notification path before sending
+    // Verify notification path before sending
     verifyNotificationPath();
     sendAchessNotification(notificationTarget, subject, body);
     
