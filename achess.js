@@ -141,6 +141,35 @@ function ensureGamesDir() {
     if (!file_exists(dir)) mkdir(dir);
 }
 
+// CASE-INSENSITIVE HELPER FUNCTIONS
+function equalsIgnoreCase(str1, str2) {
+    if (!str1 || !str2) return false;
+    return String(str1).toLowerCase() === String(str2).toLowerCase();
+}
+
+function findUserIgnoreCase(targetUser, userList) {
+    if (!targetUser || !userList) return null;
+    var target = String(targetUser).toLowerCase();
+    
+    if (typeof userList === "string") {
+        return equalsIgnoreCase(targetUser, userList) ? userList : null;
+    }
+    
+    if (Array.isArray(userList)) {
+        for (var i = 0; i < userList.length; i++) {
+            if (equalsIgnoreCase(targetUser, userList[i])) {
+                return userList[i];
+            }
+        }
+    }
+    
+    return null;
+}
+
+function isUserMatch(user1, user2) {
+    return equalsIgnoreCase(user1, user2);
+}
+
 function isUserMatch(user1, user2) {
     return String(user1).toLowerCase() === String(user2).toLowerCase();
 }
