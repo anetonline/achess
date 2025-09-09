@@ -176,22 +176,49 @@ function isUserMatch(user1, user2) {
 
 function registerCurrentPlayer() {
     try {
+        // First ensure the directory exists
+        ensureGamesDir();
+        
         // Simple local implementation
-        var players = loadInterBBSPlayers();
+        var dbFile = js.exec_dir + "players_db.json";
+        var players = {};
+        
+        // Read existing player database or create new one
+        if (file_exists(dbFile)) {
+            var f = new File(dbFile);
+            if (f.open("r")) {
+                try {
+                    var content = f.readAll().join("");
+                    if (content && content.trim() !== "") {
+                        players = JSON.parse(content);
+                    } else {
+                        players = {}; // Empty file, initialize as empty object
+                    }
+                } catch(e) {
+                    players = {}; // Error parsing JSON, initialize as empty object
+                }
+                f.close();
+            }
+        }
+        
         var localAddr = getLocalBBS("address");
         
-        if (!players[localAddr]) players[localAddr] = [];
+        // Ensure the node entry exists in the players object
+        if (!players[localAddr]) {
+            players[localAddr] = [];
+        }
         
-        // Check if player already exists
+        // Check if player already exists (case-insensitive)
         var found = false;
         for (var i = 0; i < players[localAddr].length; i++) {
-            if (players[localAddr][i].username.toLowerCase() === user.alias.toLowerCase()) {
+            if (isUserMatch(players[localAddr][i].username, user.alias)) {
                 players[localAddr][i].lastSeen = strftime("%Y-%m-%d", time());
                 found = true;
                 break;
             }
         }
         
+        // Add player if not found
         if (!found) {
             players[localAddr].push({
                 username: user.alias,
@@ -201,12 +228,31 @@ function registerCurrentPlayer() {
                 losses: 0,
                 draws: 0
             });
+            console.print("\r\nAdded " + user.alias + " to player database.\r\n");
         }
         
-        saveInterBBSPlayers(players);
+        // Save the updated player database
+        var f = new File(dbFile);
+        if (f.open("w+")) {
+            f.write(JSON.stringify(players, null, 2));
+            f.close();
+        } else {
+            console.print("\r\nWARNING: Could not write to player database file!\r\n");
+        }
     } catch(e) {
-        // Silently ignore errors
+        console.print("\r\nError in registerCurrentPlayer: " + e.toString() + "\r\n");
     }
+}
+
+function saveInterBBSPlayers(players) {
+    var dbFile = js.exec_dir + "players_db.json";
+    var f = new File(dbFile);
+    if (f.open("w+")) {
+        f.write(JSON.stringify(players, null, 2));
+        f.close();
+        return true;
+    }
+    return false;
 }
 
 // Enhanced function to properly request player lists from any node
@@ -277,25 +323,54 @@ function isInterBBSEnabled() {
 // Player Database Functions
 function loadPlayersDB() {
     var dbFile = js.exec_dir + "players_db.json";
-    if (!file_exists(dbFile)) return {};
+    if (!file_exists(dbFile)) {
+        // Create empty structure if file doesn't exist
+        var emptyDB = {};
+        var myAddr = getLocalBBS("address");
+        emptyDB[myAddr] = [];
+        savePlayersDB(emptyDB);
+        return emptyDB;
+    }
     var f = new File(dbFile);
-    if (!f.open("r")) return {};
+    if (!f.open("r")) {
+        // Return properly initialized structure if can't open
+        var emptyDB = {};
+        var myAddr = getLocalBBS("address");
+        emptyDB[myAddr] = [];
+        return emptyDB;
+    }
     var db;
     try {
         db = JSON.parse(f.readAll().join(""));
+        // Ensure the structure is correct
+        var myAddr = getLocalBBS("address");
+        if (!db[myAddr]) db[myAddr] = [];
     } catch(e) {
         db = {};
+        var myAddr = getLocalBBS("address");
+        db[myAddr] = [];
     }
     f.close();
     return db;
 }
 
 function savePlayersDB(db) {
+    // Make sure we have a valid object to save
+    if (!db) db = {};
+    
+    // Use explicit path
     var dbFile = js.exec_dir + "players_db.json";
+    console.print("\r\nAttempting to create/update players_db.json at: " + dbFile + "\r\n");
+    
     var f = new File(dbFile);
     if (f.open("w+")) {
         f.write(JSON.stringify(db, null, 2));
         f.close();
+        console.print("Players database saved successfully.\r\n");
+        return true;
+    } else {
+        console.print("ERROR: Could not open player database file for writing!\r\n");
+        return false;
     }
 }
 
@@ -306,7 +381,7 @@ function addPlayerToDB(nodeAddress, username, lastSeen) {
     // Check if player already exists
     var found = false;
     for (var i=0; i<db[nodeAddress].length; i++) {
-        if (db[nodeAddress][i].username === username) {
+        if (isUserMatch(db[nodeAddress][i].username, username)) {
             db[nodeAddress][i].lastSeen = lastSeen;
             found = true;
             break;
@@ -3024,7 +3099,9 @@ function showScrollerMenu(items, title, getDisplayText) {
 function chess_menu() {
     load("sbbsdefs.js");
     require("dd_lightbar_menu.js", "DDLightbarMenu");
-
+menu
+    // Ensure player database file exists before registering player
+    ensurePlayerDBExists();
     registerCurrentPlayer();
 
     var WIDTH = console.screen_columns;
@@ -3068,6 +3145,21 @@ function chess_menu() {
 
     function showBoard(chess, playerNames, turnText, checkText) {
         drawChessBoard(chess, turnText, checkText, playerNames);
+    }
+
+    // New helper function to ensure player DB exists
+    function ensurePlayerDBExists() {
+        var dbFile = js.exec_dir + "players_db.json";
+        if (!file_exists(dbFile)) {
+            var f = new File(dbFile);
+            if (f.open("w+")) {
+                f.write("{}");
+                f.close();
+                console.print("\r\nCreated new player database.\r\n");
+            } else {
+                console.print("\r\nWARNING: Could not create player database file!\r\n");
+            }
+        }
     }
 
     // --- PvP Start/Resume/Join ---
@@ -3139,7 +3231,7 @@ function chess_menu() {
         });
         if (!chosen) return;
         playVsPlayer(true, chosen);
-    }
+}
 
 // Helper for sleep in ms for polling loop
 function sleepMS(ms) {
