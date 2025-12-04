@@ -1125,6 +1125,7 @@ function getMyInterBBSGames() {
         return g.players && (g.players.white.user === user.alias || g.players.black.user === user.alias);
     });
 }
+
 function getPendingChallenges() {
     var games = loadInterBBSGames();
     return games.filter(function(g) {
@@ -1373,6 +1374,62 @@ function interbbsListChallenges() {
     console.getkey();
 }
 
+function deleteInterBBSGame(game_id) {
+    var games = loadInterBBSGames();
+    var beforeCount = games.length;
+    games = games.filter(function(g) { return g.game_id !== game_id; });
+    if (games.length !== beforeCount) {
+        saveInterBBSGames(games);
+        return true;
+    }
+    return false;
+}
+
+function forfeitInterBBSGame(game_id, forfeiter_alias) {
+    var games = loadInterBBSGames();
+    for (var i = 0; i < games.length; i++) {
+        if (games[i].game_id === game_id) {
+            var g = games[i];
+            var whiteUser = (g.players && g.players.white) ? g.players.white.user : null;
+            var blackUser = (g.players && g.players.black) ? g.players.black.user : null;
+            var opponent = null;
+            if (whiteUser && blackUser) {
+                opponent = (whiteUser.toLowerCase() === forfeiter_alias.toLowerCase()) ? blackUser : whiteUser;
+            } else {
+                opponent = whiteUser || blackUser || "Unknown";
+            }
+
+            // Record scores: opponent wins, forfeiter loses
+            try {
+                addScore(opponent, "Win", forfeiter_alias);
+                addScore(forfeiter_alias, "Loss", opponent);
+            } catch(e) {
+                // addScore may not exist in scope if called from a different context - ignore safely
+            }
+
+            // Mark game finished and add result text
+            g.status = "finished";
+            g.finished = true;
+            g.result = opponent + " won by forfeit";
+            g.last_update = strftime("%Y-%m-%dT%H:%M:%SZ", time());
+
+            // Save updated games
+            saveInterBBSGames(games);
+
+            // Notify opponent via Achess notification (if available)
+            try {
+                var subj = "Opponent forfeited: " + g.game_id;
+                var body = forfeiter_alias + " has forfeited InterBBS game " + g.game_id + ".\r\n\r\nResult: " + opponent + " wins by forfeit.";
+                sendAchessNotification(opponent, subj, body);
+            } catch (e) {
+                // ignore notification errors
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 function showAchessNotificationsInteractive() {
     var notes = readAchessNotifications();
     var myNotes = notes.filter(function(n) {
@@ -1603,209 +1660,209 @@ function interbbsListGamesAndMove() {
         return;
     }
     
-    console.clear();
-    console.print("\r\n\x01h\x01cActive InterBBS Games:\x01n\r\n");
-    console.print("\x01b" + repeatChar("=", 60) + "\x01n\r\n");
-    
-    for (var i = 0; i < games.length; i++) {
-        var g = games[i];
-        var opponent = (g.players.white.user === user.alias) ? g.players.black.user : g.players.white.user;
-        var opponentBBS = (g.players.white.user === user.alias) ? g.players.black.bbs : g.players.white.bbs;
-        var myColor = (g.players.white.user === user.alias) ? "White" : "Black";
-        var turnIndicator = (g.turn === myColor.toLowerCase()) ? "\x01g[YOUR TURN]\x01n" : "\x01r[Waiting]\x01n";
+    while (true) {
+        console.clear();
+        console.print("\r\n\x01h\x01cActive InterBBS Games:\x01n\r\n");
+        console.print("\x01b" + repeatChar("=", 60) + "\x01n\r\n");
         
-        console.print(format("[%d] vs %s @ %s  %s\r\n",
-            i + 1, opponent, opponentBBS, turnIndicator));
-        console.print(format("     Game ID: %s\r\n", g.game_id));
-        console.print(format("     Your color: %s  Current turn: %s\r\n", 
-            myColor, g.turn === "white" ? "White" : "Black"));
-        console.print("\r\n");
-    }
-    
-    console.print("Select game number to view/move (or Q to quit): ");
-    var sel = console.getstr(2);
-    if (!sel || sel.toUpperCase() === "Q") return;
-    
-    var idx = parseInt(sel);
-    if (isNaN(idx) || idx < 1 || idx > games.length) {
-        console.print("Invalid selection.\r\n");
-        console.print("[Press any key]");
-        console.getkey();
-        return;
-    }
-    
-    var game = games[idx - 1];
-    var myColor = (game.players.white.user === user.alias) ? "white" : "black";
-    
-    // Load the actual game position and replay move history for proper display
-    var chess = new Chess();
-    
-    // If we have stored move history, replay it to get proper chess.history() and position
-    if (game.move_history && game.move_history.length > 0) {
-        for (var h = 0; h < game.move_history.length; h++) {
-            try {
-                chess.move(game.move_history[h]);
-            } catch (e) {
-                // If move fails, fall back to FEN position
-                chess = new Chess(game.fen || "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        for (var i = 0; i < games.length; i++) {
+            var g = games[i];
+            var opponent = (g.players && g.players.white && g.players.white.user === user.alias) ? (g.players.black && g.players.black.user) : (g.players && g.players.white && g.players.white.user);
+            opponent = opponent || "Unknown";
+            var opponentBBS = (g.players && g.players.white && g.players.white.user === user.alias) ? (g.players.black && g.players.black.bbs) : (g.players && g.players.white && g.players.white.bbs);
+            opponentBBS = opponentBBS || "";
+            var myColor = (g.players && g.players.white && g.players.white.user === user.alias) ? "White" : "Black";
+            var turnIndicator = (g.turn === myColor.toLowerCase()) ? "\x01g[YOUR TURN]\x01n" : "\x01r[Waiting]\x01n";
+            
+            console.print(format("[%d] vs %s @ %s  %s\r\n", i + 1, opponent, opponentBBS, turnIndicator));
+            console.print(format("     Game ID: %s\r\n", g.game_id));
+            console.print(format("     Your color: %s  Current turn: %s\r\n", myColor, (g.turn === "white" ? "White" : "Black")));
+            if (g.last_update) console.print(format("     Last update: %s\r\n", g.last_update));
+            console.print("\r\n");
+        }
+        
+        console.print("Select game number to view/move (or Q to quit): ");
+        var sel = console.getstr(3);
+        if (!sel || sel.toUpperCase() === "Q") return;
+        
+        var idx = parseInt(sel);
+        if (isNaN(idx) || idx < 1 || idx > games.length) {
+            console.print("Invalid selection.\r\n");
+            console.print("[Press any key]");
+            console.getkey();
+            continue;
+        }
+        
+        var game = games[idx - 1];
+        var myColor = (game.players && game.players.white && game.players.white.user === user.alias) ? "white" : "black";
+        var opponentName = (game.players && game.players.white && game.players.white.user === user.alias) ? (game.players.black && game.players.black.user) : (game.players && game.players.white && game.players.white.user);
+        opponentName = opponentName || "Unknown";
+
+        // Action menu for the selected game
+        while (true) {
+            console.clear();
+            console.print("\r\n\x01h\x01cSelected InterBBS Game:\x01n\r\n\r\n");
+            console.print(format("Opponent: %s\r\n", opponentName));
+            console.print(format("Game ID: %s\r\n", game.game_id));
+            console.print(format("Your color: %s   Current turn: %s\r\n\r\n", myColor, game.turn));
+            
+            // Build option strings and print in tidy columns to avoid mid-word wraps
+            var opt1 = "\x01h\x01g[M]\x01n View/Make Move";
+            var opt2 = "\x01h\x01r[F]\x01n Forfeit Game (give opponent a win)";
+            var opt3 = "\x01h\x01c[D]\x01n Delete Game (No score)";
+            var opt4 = "\x01h\x01w[B]\x01n Back to list";
+
+            // Use padRight to create two-column output. Adjust width (40) if your console is narrower.
+            console.print(padRight(opt1, 40) + opt2 + "\r\n");
+            console.print(padRight(opt3, 40) + opt4 + "\r\n\r\n");
+
+            // Require Enter after option so accidental leftover keystrokes don't trigger actions
+            console.print("Choose an option (M/F/D/B) then Enter: ");
+            var actionInput = console.getstr(1);
+            var action = actionInput ? actionInput.toUpperCase().charAt(0) : "";
+
+            if (action === "B") break; // back to list
+            if (action === "D") {
+                console.print("\r\n\x01yAre you sure you want to delete this InterBBS game? (Y/N): \x01n");
+                var conf = console.getkey().toUpperCase();
+                if (conf === "Y") {
+                    if (deleteInterBBSGame(game.game_id)) {
+                        console.print("\r\n\x01h\x01gGame deleted successfully.\x01n\r\n");
+                        // refresh games list
+                        games = getMyInterBBSGames();
+                        console.print("Press any key to continue...");
+                        console.getkey();
+                        break;
+                    } else {
+                        console.print("\r\n\x01h\x01rFailed to delete game (not found).\x01n\r\n");
+                        console.print("Press any key to continue...");
+                        console.getkey();
+                        break;
+                    }
+                } else {
+                    continue;
+                }
+            }
+            if (action === "F") {
+                console.print("\r\n\x01yAre you sure you want to FORFEIT this game? This will record a win for your opponent. (Y/N): \x01n");
+                var conf = console.getkey().toUpperCase();
+                if (conf === "Y") {
+                    if (forfeitInterBBSGame(game.game_id, user.alias)) {
+                        console.print("\r\n\x01h\x01gYou have forfeited the game. Your opponent (" + opponentName + ") has been awarded a win.\x01n\r\n");
+                        // refresh list and return to list view
+                        games = getMyInterBBSGames();
+                        console.print("Press any key to continue...");
+                        console.getkey();
+                        break;
+                    } else {
+                        console.print("\r\n\x01h\x01rFailed to forfeit game (not found).\x01n\r\n");
+                        console.print("Press any key to continue...");
+                        console.getkey();
+                        break;
+                    }
+                } else {
+                    continue;
+                }
+            }
+            if (action === "M") {
+                // Reuse existing move flow (rebuild chess from fen/move_history)
+                var chess = new Chess();
+                if (game.move_history && game.move_history.length > 0) {
+                    for (var h = 0; h < game.move_history.length; h++) {
+                        try { chess.move(game.move_history[h]); }
+                        catch (e) { chess = new Chess(game.fen || chess.fen()); break; }
+                    }
+                } else if (game.fen) {
+                    chess = new Chess(game.fen);
+                }
+
+                // If it's not user's turn, just show board and return
+                if (game.turn !== myColor) {
+                    var playerNames = (game.players.white ? game.players.white.user : "") + " vs " + (game.players.black ? game.players.black.user : "");
+                    drawChessBoard(chess, "Waiting for opponent", "", playerNames, game.move_history || []);
+                    console.gotoxy(1, 23);
+                    console.cleartoeol();
+                    console.print("It's not your turn in this game. Press any key to continue...");
+                    console.getkey();
+                    break;
+                }
+
+                // Prompt for move similarly to interbbsListGamesAndMove previous logic
+                for (var clearY = 20; clearY <= 25; clearY++) { console.gotoxy(1, clearY); console.cleartoeol(); }
+                console.gotoxy(1, 23);
+                console.print("Material: " + getMaterialScore(getCapturedPieces(chess, 'w'), getCapturedPieces(chess, 'b')));
+                console.gotoxy(1, 24);
+                console.print("Enter your move (try: e2e4, Nf3, or d4) or Q to cancel: ");
+                var move = console.getstr(8);
+                if (!move || move.toUpperCase() === "Q") break;
+
+                var moveObj = null;
+                var coordFiles = "ABCDEFGH";
+                var coordRanks = "12345678";
+
+                if (move.length === 4 &&
+                    coordFiles.indexOf(move[0].toUpperCase()) >= 0 &&
+                    coordRanks.indexOf(move[1]) >= 0 &&
+                    coordFiles.indexOf(move[2].toUpperCase()) >= 0 &&
+                    coordRanks.indexOf(move[3]) >= 0) {
+                    moveObj = chess.move({ from: move.substr(0,2).toLowerCase(), to: move.substr(2,2).toLowerCase(), promotion: "q" });
+                }
+                if (!moveObj) {
+                    try { moveObj = chess.move(move); } catch(e) {}
+                }
+                if (!moveObj) {
+                    try { moveObj = chess.move(move, { sloppy: true }); } catch(e) {}
+                }
+                if (!moveObj) {
+                    console.gotoxy(1, 25);
+                    console.cleartoeol();
+                    console.print("Illegal move! Press any key...");
+                    console.getkey();
+                    break;
+                }
+
+                // Update game object and save + write an outbound packet
+                if (!game.move_history) game.move_history = [];
+                game.move_history.push(moveObj.san || move);
+                game.fen = chess.fen();
+                game.turn = (game.turn === "white") ? "black" : "white";
+                game.last_update = strftime("%Y-%m-%dT%H:%M:%SZ", time());
+
+                // Persist
+                var allGames = loadInterBBSGames();
+                for (var gi = 0; gi < allGames.length; gi++) {
+                    if (allGames[gi].game_id === game.game_id) { allGames[gi] = game; break; }
+                }
+                saveInterBBSGames(allGames);
+
+                // Create move packet
+                var movePacket = {
+                    type: "move",
+                    game_id: game.game_id,
+                    from: { bbs: getLocalBBS("name"), address: getLocalBBS("address"), user: user.alias },
+                    to: (game.players.white && game.players.white.user === user.alias) ? game.players.black : game.players.white,
+                    move: moveObj.san || move,
+                    fen: game.fen,
+                    move_history: game.move_history,
+                    created: game.last_update
+                };
+
+                var fname = format("chess_ibbs_move_%s.json", game.game_id.replace(/[^A-Za-z0-9_]/g, ""));
+                var path = INTERBBS_OUT_DIR + fname;
+                var f = new File(path);
+                if (f.open("w+")) { f.write(JSON.stringify(movePacket, null, 2)); f.close(); }
+
+                console.gotoxy(1, 25);
+                console.cleartoeol();
+                console.print("Move sent successfully! Press any key to continue...");
+                console.getkey();
+
+                // Refresh games list after move
+                games = getMyInterBBSGames();
                 break;
             }
-        }
-    } else {
-        // No move history, use FEN position
-        chess = new Chess(game.fen || "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-    }
-    
-    // Clear screen and show current board position
-    console.clear();
-    
-    var playerNames = game.players.white.user + " vs " + game.players.black.user;
-    var turnText = "";
-    var checkText = "";
-    
-    if (chess.in_check && chess.in_check()) {
-        checkText = (chess.turn() === "w" ? "White" : "Black") + " is in check!";
-    }
-    
-    if (game.turn !== myColor) {
-        turnText = "Waiting for " + (game.turn === "white" ? game.players.white.user : game.players.black.user) + " to move";
-        drawChessBoard(chess, turnText, checkText, playerNames);
-        
-        console.gotoxy(1, 23);
-        console.cleartoeol();
-        console.print("It's not your turn in this game.");
-        console.gotoxy(1, 24);
-        console.print("Press any key to return to menu...");
-        console.getkey();
-        return;
-    }
-    
-    // It's the player's turn
-    turnText = "Your move (" + myColor + ")";
-    drawChessBoard(chess, turnText, checkText, playerNames);
-    
-    // Check if game is over
-    if (chess.in_checkmate() || chess.in_stalemate() || chess.in_draw()) {
-        console.gotoxy(1, 23);
-        console.cleartoeol();
-        if (chess.in_checkmate()) {
-            console.print("Game Over - Checkmate!");
-        } else {
-            console.print("Game Over - Draw!");
-        }
-        console.gotoxy(1, 24);
-        console.print("Press any key to return to menu...");
-        console.getkey();
-        return;
-    }
-    
-    // Get player's move - Clear multiple lines to ensure clean display
-    for (var clearY = 20; clearY <= 25; clearY++) {
-        console.gotoxy(1, clearY);
-        console.cleartoeol();
-    }
-
-    console.gotoxy(1, 23);
-    console.print("Material: " + getMaterialScore(getCapturedPieces(chess, 'w'), getCapturedPieces(chess, 'b')));
-
-    console.gotoxy(1, 24);
-    console.print("Enter your move (try: e2e4, Nf3, or d4): ");
-
-    var move = console.getstr(8);
-    
-    if (!move || move.toUpperCase() === "Q") {
-        return;
-    }
-    
-    // Try to make the move - Enhanced with multiple formats
-    var moveObj = null;
-    var files = "ABCDEFGH";
-    var ranks = "12345678";
-    
-    // Try different move formats
-    if (move.length === 4 &&
-        files.indexOf(move[0].toUpperCase()) >= 0 &&
-        ranks.indexOf(move[1]) >= 0 &&
-        files.indexOf(move[2].toUpperCase()) >= 0 &&
-        ranks.indexOf(move[3]) >= 0) {
-        // Try coordinate notation (e2e4)
-        moveObj = chess.move({
-            from: move.substr(0,2).toLowerCase(),
-            to: move.substr(2,2).toLowerCase(),
-            promotion: "q"
-        });
-    }
-    
-    if (!moveObj) {
-        // Try algebraic notation (Nf3, e4, etc.)
-        try {
-            moveObj = chess.move(move);
-        } catch(e) {}
-    }
-    
-    if (!moveObj) {
-        // Try with sloppy flag for more lenient parsing
-        try {
-            moveObj = chess.move(move, { sloppy: true });
-        } catch(e) {}
-    }
-    
-    if (!moveObj) {
-        console.gotoxy(1, 25);
-        console.cleartoeol();
-        console.print("Illegal move! Valid moves: e2e4, d2d4, Nf3, Ng1f3... Press any key");
-        console.getkey();
-        // Recursive call to try again
-        interbbsListGamesAndMove();
-        return;
-    }
-    
-    // Update game state
-    game.fen = chess.fen();
-    if (!game.move_history) game.move_history = [];
-    game.move_history.push(moveObj.san || move); // Use SAN notation if available
-    game.turn = (game.turn === "white" ? "black" : "white");
-    game.last_update = strftime("%Y-%m-%dT%H:%M:%SZ", time());
-    
-    // Save updated game state
-    var allGames = loadInterBBSGames();
-    for (var i = 0; i < allGames.length; i++) {
-        if (allGames[i].game_id === game.game_id) {
-            allGames[i] = game;
-            break;
-        }
-    }
-    saveInterBBSGames(allGames);
-    
-    // Create move packet using configured outbound directory
-    var movePacket = {
-        type: "move",
-        game_id: game.game_id,
-        from: {
-            bbs: getLocalBBS("name"),
-            address: getLocalBBS("address"),
-            user: user.alias
-        },
-        to: (game.players.white.user === user.alias) ? game.players.black : game.players.white,
-        move: moveObj.san || move,
-        fen: game.fen,
-        move_history: game.move_history,
-        created: game.last_update
-    };
-    
-    var fname = format("chess_ibbs_move_%s.json", game.game_id.replace(/[^A-Za-z0-9_]/g, ""));
-    var path = INTERBBS_OUT_DIR + fname;
-    var f = new File(path);
-    if (f.open("w+")) {
-        f.write(JSON.stringify(movePacket, null, 2));
-        f.close();
-    }
-    
-    // Show success message
-    console.gotoxy(1, 25);
-    console.cleartoeol();
-    console.print("Move sent successfully! Press any key to continue...");
-    console.getkey();
+        } // end action menu
+    } // end while listing
 }
 
 function sendInterBBSMessage() {
